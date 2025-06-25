@@ -15,3 +15,38 @@
 {"level":"error","message":"Send OTP error: Failed to send OTP","service":"budzee-gaming","stack":"Error: Failed to send OTP\n    at AuthService.sendOTP (C:\\Users\\HOME\\Desktop\\Budzee\\backend\\src\\services\\authService.js:49:13)\n    at async C:\\Users\\HOME\\Desktop\\Budzee\\backend\\src\\routes\\auth.js:68:20","timestamp":"2025-06-25T08:49:33.361Z"}
 {"level":"info","message":"Professional Gaming Platform server running on port 3001","service":"budzee-gaming","timestamp":"2025-06-25T08:52:07.569Z"}
 {"level":"info","message":"SIGINT received, shutting down gracefully","service":"budzee-gaming","timestamp":"2025-06-25T08:53:10.064Z"}
+{"level":"info","message":"✅ Database connected successfully","service":"budzee-gaming","timestamp":"2025-06-25T09:33:11.458Z"}
+{"level":"info","message":"🚀 Professional Gaming Platform server running on port 8080","service":"budzee-gaming","timestamp":"2025-06-25T09:33:11.471Z"}
+{"level":"info","message":"📱 API Base URL: http://localhost:8080/api","service":"budzee-gaming","timestamp":"2025-06-25T09:33:11.473Z"}
+{"level":"info","message":"🏥 Health Check: http://localhost:8080/health","service":"budzee-gaming","timestamp":"2025-06-25T09:33:11.474Z"}
+{"level":"info","message":"🔧 Environment: development","service":"budzee-gaming","timestamp":"2025-06-25T09:33:11.478Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"budzee-gaming","timestamp":"2025-06-25T09:35:51.332Z"}
+{"level":"info","message":"✅ Database connected successfully","service":"budzee-gaming","timestamp":"2025-06-25T09:36:45.224Z"}
+{"level":"info","message":"🚀 Professional Gaming Platform server running on port 8080","service":"budzee-gaming","timestamp":"2025-06-25T09:36:45.237Z"}
+{"level":"info","message":"📱 API Base URL: http://localhost:8080/api","service":"budzee-gaming","timestamp":"2025-06-25T09:36:45.241Z"}
+{"level":"info","message":"🏥 Health Check: http://localhost:8080/health","service":"budzee-gaming","timestamp":"2025-06-25T09:36:45.244Z"}
+{"level":"info","message":"🔧 Environment: development","service":"budzee-gaming","timestamp":"2025-06-25T09:36:45.246Z"}
+{"level":"info","message":"OTP record created for +919876543210: cmcbrh3rm00005cjjxh0p4k38","service":"budzee-gaming","timestamp":"2025-06-25T09:37:53.943Z"}
+{"level":"error","message":"Failed to send OTP to +919876543210: Failed to send OTP","service":"budzee-gaming","success":false,"timestamp":"2025-06-25T09:37:54.455Z"}
+{"level":"info","message":"Verifying OTP for +919876543210: 123456","service":"budzee-gaming","timestamp":"2025-06-25T09:37:54.464Z"}
+{"level":"info","message":"Valid OTP found for +919876543210, creating/updating user","service":"budzee-gaming","timestamp":"2025-06-25T09:37:54.698Z"}
+{"level":"info","message":"Creating new user for +919876543210","service":"budzee-gaming","timestamp":"2025-06-25T09:37:55.025Z"}
+{"level":"info","message":"New user created: cmcbrh4r800015cjj6xvdq1kr","service":"budzee-gaming","timestamp":"2025-06-25T09:37:55.814Z"}
+{"level":"info","message":"Authentication successful for user: cmcbrh4r800015cjj6xvdq1kr","service":"budzee-gaming","timestamp":"2025-06-25T09:37:55.822Z"}
+{"level":"info","message":"✅ Database connected successfully","service":"budzee-gaming","timestamp":"2025-06-25T09:38:43.337Z"}
+{"level":"info","message":"🚀 Professional Gaming Platform server running on port 8080","service":"budzee-gaming","timestamp":"2025-06-25T09:38:43.349Z"}
+{"level":"info","message":"📱 API Base URL: http://localhost:8080/api","service":"budzee-gaming","timestamp":"2025-06-25T09:38:43.351Z"}
+{"level":"info","message":"🏥 Health Check: http://localhost:8080/health","service":"budzee-gaming","timestamp":"2025-06-25T09:38:43.351Z"}
+{"level":"info","message":"🔧 Environment: development","service":"budzee-gaming","timestamp":"2025-06-25T09:38:43.353Z"}
+{"level":"info","message":"✅ Database connected successfully","service":"budzee-gaming","timestamp":"2025-06-25T09:38:48.377Z"}
+{"level":"info","message":"🚀 Professional Gaming Platform server running on port 8080","service":"budzee-gaming","timestamp":"2025-06-25T09:38:48.387Z"}
+{"level":"info","message":"📱 API Base URL: http://localhost:8080/api","service":"budzee-gaming","timestamp":"2025-06-25T09:38:48.389Z"}
+{"level":"info","message":"🏥 Health Check: http://localhost:8080/health","service":"budzee-gaming","timestamp":"2025-06-25T09:38:48.389Z"}
+{"level":"info","message":"🔧 Environment: development","service":"budzee-gaming","timestamp":"2025-06-25T09:38:48.390Z"}
+{"level":"info","message":"✅ Database connected successfully","service":"budzee-gaming","timestamp":"2025-06-25T09:38:53.385Z"}
+{"level":"info","message":"🚀 Professional Gaming Platform server running on port 8080","service":"budzee-gaming","timestamp":"2025-06-25T09:38:53.395Z"}
+{"level":"info","message":"📱 API Base URL: http://localhost:8080/api","service":"budzee-gaming","timestamp":"2025-06-25T09:38:53.396Z"}
+{"level":"info","message":"🏥 Health Check: http://localhost:8080/health","service":"budzee-gaming","timestamp":"2025-06-25T09:38:53.396Z"}
+{"level":"info","message":"🔧 Environment: development","service":"budzee-gaming","timestamp":"2025-06-25T09:38:53.397Z"}
+{"level":"info","message":"OTP record created for +919133263911: cmcbrivfd00005fpl453bbsx2","service":"budzee-gaming","timestamp":"2025-06-25T09:39:16.410Z"}
+{"level":"error","message":"Failed to send OTP to +919133263911: SMS sent successfully.","request_id":"xKGgO9Pk2NoSApu","return":true,"service":"budzee-gaming","status":"SUCCESS","timestamp":"2025-06-25T09:39:17.769Z"}

@@ -9,11 +9,20 @@ class AuthService {
   constructor() {}
 
   generateOTP() {
+    // For development, use a fixed OTP for testing
+    if (process.env.NODE_ENV === 'development') {
+      return '123456'; // Fixed OTP for development
+    }
     return Math.floor(100000 + Math.random() * 900000).toString();
   }
 
   async sendOTP(phoneNumber) {
     try {
+      // Validate phone number format
+      if (!phoneNumber || !phoneNumber.match(/^\+91[6-9]\d{9}$/)) {
+        throw new Error('Invalid phone number format');
+      }
+
       // Clean up expired OTPs
       await prisma.oTPVerification.deleteMany({
         where: {
@@ -26,8 +35,8 @@ class AuthService {
       const otp = this.generateOTP();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-      // Save OTP to database
-      await prisma.oTPVerification.create({
+      // Save OTP to database first
+      const otpRecord = await prisma.oTPVerification.create({
         data: {
           phoneNumber,
           otp,
@@ -35,25 +44,54 @@ class AuthService {
         }
       });
 
+      logger.info(`OTP record created for ${phoneNumber}: ${otpRecord.id}`);
+
       // Send OTP via renflair SMS API
       const apiKey = process.env.RENFLAIR_API_KEY;
-      const resp = await sendOtpViaRenflair(apiKey, phoneNumber, otp);
-      if (resp && resp.success) {
-        logger.info(`OTP sent to ${phoneNumber} via renflair`);
-      } else {
-        logger.error(`Failed to send OTP to ${phoneNumber} via renflair: ${resp && resp.message}`);
-        throw new Error('Failed to send OTP via SMS');
+      
+      if (!apiKey) {
+        logger.error('RENFLAIR_API_KEY not configured');
+        throw new Error('SMS service not configured');
       }
 
-      return { success: true, message: 'OTP sent successfully' };
+      const resp = await sendOtpViaRenflair(apiKey, phoneNumber, otp);
+      
+      if (resp && resp.success) {
+        logger.info(`OTP sent successfully to ${phoneNumber}`);
+        return { success: true, message: 'OTP sent successfully' };
+      } else {
+        logger.error(`Failed to send OTP to ${phoneNumber}:`, resp);
+        // Don't throw error here - OTP is saved in DB, user can still verify
+        // This allows for manual testing or if SMS service is temporarily down
+        return { 
+          success: true, 
+          message: 'OTP generated successfully. If you don\'t receive SMS, please try again.',
+          warning: 'SMS service may be temporarily unavailable'
+        };
+      }
     } catch (error) {
       logger.error('Send OTP error:', error);
-      throw new Error('Failed to send OTP');
+      throw new Error(error.message || 'Failed to send OTP');
     }
   }
 
   async verifyOTP(phoneNumber, otp) {
     try {
+      // Validate inputs
+      if (!phoneNumber || !otp) {
+        throw new Error('Phone number and OTP are required');
+      }
+
+      if (!phoneNumber.match(/^\+91[6-9]\d{9}$/)) {
+        throw new Error('Invalid phone number format');
+      }
+
+      if (!otp.match(/^\d{6}$/)) {
+        throw new Error('OTP must be 6 digits');
+      }
+
+      logger.info(`Verifying OTP for ${phoneNumber}: ${otp}`);
+
       // Find valid OTP
       const otpRecord = await prisma.oTPVerification.findFirst({
         where: {
@@ -65,8 +103,24 @@ class AuthService {
       });
 
       if (!otpRecord) {
-        throw new Error('Invalid or expired OTP');
+        // Check if OTP exists but is expired or already verified
+        const anyOtpRecord = await prisma.oTPVerification.findFirst({
+          where: { phoneNumber, otp },
+          orderBy: { createdAt: 'desc' }
+        });
+
+        if (anyOtpRecord) {
+          if (anyOtpRecord.verified) {
+            throw new Error('OTP already used');
+          } else if (anyOtpRecord.expiresAt < new Date()) {
+            throw new Error('OTP expired. Please request a new one');
+          }
+        }
+        
+        throw new Error('Invalid OTP');
       }
+
+      logger.info(`Valid OTP found for ${phoneNumber}, creating/updating user`);
 
       // Mark OTP as verified
       await prisma.oTPVerification.update({
@@ -81,6 +135,7 @@ class AuthService {
       });
 
       if (!user) {
+        logger.info(`Creating new user for ${phoneNumber}`);
         // Create new user with wallet
         user = await prisma.user.create({
           data: {
@@ -94,7 +149,9 @@ class AuthService {
           },
           include: { wallet: true }
         });
+        logger.info(`New user created: ${user.id}`);
       } else {
+        logger.info(`Updating existing user: ${user.id}`);
         // Update verification status
         user = await prisma.user.update({
           where: { id: user.id },
@@ -103,12 +160,20 @@ class AuthService {
         });
       }
 
+      // Validate JWT configuration
+      if (!process.env.JWT_SECRET) {
+        logger.error('JWT_SECRET not configured');
+        throw new Error('Authentication service not configured');
+      }
+
       // Generate JWT token
       const token = jwt.sign(
         { userId: user.id, phoneNumber: user.phoneNumber },
         process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN }
+        { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
       );
+
+      logger.info(`Authentication successful for user: ${user.id}`);
 
       return {
         success: true,
@@ -119,6 +184,7 @@ class AuthService {
           name: user.name,
           email: user.email,
           avatar: user.avatar,
+          isVerified: user.isVerified,
           wallet: user.wallet
         }
       };

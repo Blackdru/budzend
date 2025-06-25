@@ -253,9 +253,27 @@ app.use((err, req, res, next) => {
 
 
 const PORT = process.env.PORT || 8080;
-server.listen(PORT, () => {
-  logger.info(`Professional Gaming Platform server running on port ${PORT}`);
-});
+
+// Start server
+async function startServer() {
+  try {
+    // Test database connection first
+    await prisma.$connect();
+    logger.info('✅ Database connected successfully');
+    
+    server.listen(PORT, () => {
+      logger.info(`🚀 Professional Gaming Platform server running on port ${PORT}`);
+      logger.info(`📱 API Base URL: http://localhost:${PORT}/api`);
+      logger.info(`🏥 Health Check: http://localhost:${PORT}/health`);
+      logger.info(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
+    });
+  } catch (error) {
+    logger.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
