@@ -1,0 +1,17 @@
+{"level":"info","message":"Professional Gaming Platform server running on port 3001","service":"budzee-gaming","timestamp":"2025-06-25T08:11:57.092Z"}
+{"level":"info","message":"Professional Gaming Platform server running on port 3001","service":"budzee-gaming","timestamp":"2025-06-25T08:16:41.967Z"}
+{"level":"info","message":"Professional Gaming Platform server running on port 3001","service":"budzee-gaming","timestamp":"2025-06-25T08:27:14.971Z"}
+{"level":"info","message":"Professional Gaming Platform server running on port 3001","service":"budzee-gaming","timestamp":"2025-06-25T08:28:55.772Z"}
+{"level":"info","message":"Professional Gaming Platform server running on port 3001","service":"budzee-gaming","timestamp":"2025-06-25T08:36:05.065Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"budzee-gaming","timestamp":"2025-06-25T08:36:22.987Z"}
+{"level":"info","message":"Professional Gaming Platform server running on port 3001","service":"budzee-gaming","timestamp":"2025-06-25T08:36:36.517Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"budzee-gaming","timestamp":"2025-06-25T08:40:50.467Z"}
+{"level":"info","message":"Professional Gaming Platform server running on port 3001","service":"budzee-gaming","timestamp":"2025-06-25T08:41:05.265Z"}
+{"level":"info","message":"Professional Gaming Platform server running on port 3001","service":"budzee-gaming","timestamp":"2025-06-25T08:43:42.497Z"}
+{"level":"info","message":"Professional Gaming Platform server running on port 3001","service":"budzee-gaming","timestamp":"2025-06-25T08:43:48.279Z"}
+{"level":"info","message":"Professional Gaming Platform server running on port 3001","service":"budzee-gaming","timestamp":"2025-06-25T08:43:50.645Z"}
+{"level":"error","message":"Failed to send OTP to +919133263911 via renflair: fetch is not a function","service":"budzee-gaming","timestamp":"2025-06-25T08:49:33.358Z"}
+{"level":"error","message":"Send OTP error: Failed to send OTP via SMS","service":"budzee-gaming","stack":"Error: Failed to send OTP via SMS\n    at AuthService.sendOTP (C:\\Users\\HOME\\Desktop\\Budzee\\backend\\src\\services\\authService.js:43:15)\n    at async C:\\Users\\HOME\\Desktop\\Budzee\\backend\\src\\routes\\auth.js:68:20","timestamp":"2025-06-25T08:49:33.360Z"}
+{"level":"error","message":"Send OTP error: Failed to send OTP","service":"budzee-gaming","stack":"Error: Failed to send OTP\n    at AuthService.sendOTP (C:\\Users\\HOME\\Desktop\\Budzee\\backend\\src\\services\\authService.js:49:13)\n    at async C:\\Users\\HOME\\Desktop\\Budzee\\backend\\src\\routes\\auth.js:68:20","timestamp":"2025-06-25T08:49:33.361Z"}
+{"level":"info","message":"Professional Gaming Platform server running on port 3001","service":"budzee-gaming","timestamp":"2025-06-25T08:52:07.569Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"budzee-gaming","timestamp":"2025-06-25T08:53:10.064Z"}

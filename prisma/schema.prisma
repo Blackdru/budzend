@@ -1,0 +1,161 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(cuid())
+  phoneNumber String   @unique
+  name        String?
+  email       String?  @unique
+  avatar      String?
+  isVerified  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Wallet and transactions
+  wallet      Wallet?
+  transactions Transaction[]
+
+  // Gaming
+  gameParticipations GameParticipation[]
+  matchmakingQueues  MatchmakingQueue[]
+
+  @@map("users")
+}
+
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  balance   Decimal  @default(0) @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("wallets")
+}
+
+model Transaction {
+  id          String            @id @default(cuid())
+  userId      String
+  type        TransactionType
+  amount      Decimal           @db.Decimal(10, 2)
+  status      TransactionStatus @default(PENDING)
+  description String?
+  
+  // Payment gateway details
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+  
+  // Game related
+  gameId      String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("transactions")
+}
+
+model Game {
+  id          String     @id @default(cuid())
+  type        GameType   @default(LUDO)
+  maxPlayers  Int
+  entryFee    Decimal    @db.Decimal(10, 2)
+  prizePool   Decimal    @db.Decimal(10, 2)
+  status      GameStatus @default(WAITING)
+  
+  // Game state
+  currentTurn Int        @default(0)
+  gameData    Json?      // Store game board state
+  winner      String?
+  
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  participants GameParticipation[]
+
+  @@map("games")
+}
+
+model GameParticipation {
+  id       String @id @default(cuid())
+  userId   String
+  gameId   String
+  position Int    // Player position (0, 1, 2, 3)
+  color    String // red, blue, green, yellow
+  score    Int    @default(0)
+  rank     Int?   // Final ranking when game ends
+  
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, gameId])
+  @@map("game_participations")
+}
+
+model MatchmakingQueue {
+  id         String   @id @default(cuid())
+  userId     String
+  gameType   GameType @default(LUDO)
+  maxPlayers Int
+  entryFee   Decimal  @db.Decimal(10, 2)
+  
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("matchmaking_queues")
+}
+
+model OTPVerification {
+  id          String   @id @default(cuid())
+  phoneNumber String
+  otp         String
+  expiresAt   DateTime
+  verified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@map("otp_verifications")
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  GAME_ENTRY
+  GAME_WINNING
+  REFUND
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum GameType {
+  LUDO
+  // Future games can be added here
+}
+
+enum GameStatus {
+  WAITING
+  PLAYING
+  FINISHED
+  CANCELLED
+}
