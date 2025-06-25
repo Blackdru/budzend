@@ -61,9 +61,16 @@ router.post('/create-deposit-order', authenticateToken, async (req, res) => {
 
   } catch (error) {
     logger.error('Create deposit order error:', error);
+    if (error && error.error && error.error.description) {
+      // Razorpay error
+      return res.status(500).json({
+        success: false,
+        message: error.error.description
+      });
+    }
     res.status(500).json({
       success: false,
-      message: 'Failed to create deposit order'
+      message: error.message || 'Failed to create deposit order'
     });
   }
 });

@@ -50,7 +50,7 @@ class WalletService {
         data: {
           userId,
           type,
-          amount,
+          amount: parseFloat(amount),
           status,
           description,
           razorpayOrderId,
