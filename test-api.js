@@ -1,6 +1,6 @@
 const fetch = require('node-fetch');
 
-const API_BASE = 'http://localhost:8080/api';
+const API_BASE = 'https://test.fivlog.space/api';
 const TEST_PHONE = '+919133263911';
 
 async function testAPI() {
@@ -9,7 +9,7 @@ async function testAPI() {
   try {
     // Test 1: Health check
     console.log('1. Testing health endpoint...');
-    const healthResponse = await fetch('http://localhost:8080/health');
+    const healthResponse = await fetch('https://test.fivlog.space/health');
     const healthData = await healthResponse.json();
     console.log('✅ Health check:', healthData);
 
