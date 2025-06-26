@@ -62,20 +62,27 @@ io.on('connection', (socket) => {
     try {
       const { gameType, maxPlayers, entryFee } = data;
       
-      // Validate user has sufficient balance
+      // Get user data
       const user = await prisma.user.findUnique({
         where: { id: userId },
         include: { wallet: true }
       });
       
-      if (!user.wallet || user.wallet.balance < entryFee) {
-        return socket.emit('error', { message: 'Insufficient balance' });
+      if (!user) {
+        return socket.emit('error', { message: 'User not found' });
+      }
+      
+      // Validate user has sufficient balance (skip for free games)
+      if (entryFee > 0) {
+        if (!user.wallet || user.wallet.balance < entryFee) {
+          return socket.emit('error', { message: 'Insufficient balance' });
+        }
       }
       
       await matchmakingService.joinQueue(userId, gameType, maxPlayers, entryFee);
       socket.emit('matchmakingStatus', { status: 'waiting' });
       
-      logger.info(`User ${userId} joined matchmaking queue`);
+      logger.info(`User ${userId} joined matchmaking queue for ${gameType}`);
     } catch (err) {
       logger.error('Matchmaking join error:', err);
       socket.emit('error', { message: err.message });
@@ -212,11 +219,14 @@ io.on('connection', (socket) => {
 // Matchmaking service callback for game creation
 matchmakingService.setGameCreatedCallback((game, players) => {
   // Notify all matched players
-  players.forEach(player => {
+  players.forEach((player, index) => {
     const socketId = userSockets.get(player.id);
     if (socketId) {
       io.to(`user:${player.id}`).emit('matchFound', { 
         game,
+        playerId: player.id,
+        playerName: player.name,
+        playerIndex: index,
         message: 'Match found! Joining game...' 
       });
     }

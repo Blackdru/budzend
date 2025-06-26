@@ -9,18 +9,20 @@ class MatchmakingService {
   }
 
   startMatchmaking() {
-    // Run matchmaking every 30 seconds (reduced from 5 seconds to lower DB load)
+    // Run matchmaking every 3 seconds for faster matching
     this.matchmakingInterval = setInterval(() => {
       this.processMatchmaking();
-    }, 30000);
+    }, 3000);
   }
 
   async joinQueue(userId, gameType, maxPlayers, entryFee) {
     try {
-      // Check if user has sufficient balance
-      const balance = await walletService.getWalletBalance(userId);
-      if (balance < entryFee) {
-        throw new Error('Insufficient balance');
+      // Check if user has sufficient balance (skip for free games)
+      if (entryFee > 0) {
+        const balance = await walletService.getWalletBalance(userId);
+        if (balance < entryFee) {
+          throw new Error('Insufficient balance');
+        }
       }
 
       // Check if user is already in queue
@@ -92,9 +94,14 @@ class MatchmakingService {
         const { gameType, maxPlayers, entryFee } = group;
         const availableCount = group._count.id;
 
-        if (availableCount >= maxPlayers) {
-          // We have enough players for a full game
-          await this.createGame(gameType, maxPlayers, entryFee);
+        // For memory games, start with 2 players
+        // For other games, can start with 2 players minimum
+        const minPlayers = 2;
+        
+        if (availableCount >= minPlayers) {
+          // Start game with available players (minimum 2)
+          const playersToMatch = Math.min(availableCount, maxPlayers);
+          await this.createGame(gameType, playersToMatch, entryFee);
         }
       }
     } catch (error) {
@@ -102,16 +109,15 @@ class MatchmakingService {
     }
   }
 
-  async createGame(gameType, maxPlayers, entryFee) {
+  async createGame(gameType, playersToMatch, entryFee) {
     try {
       // Get players from queue
       const queueEntries = await prisma.matchmakingQueue.findMany({
         where: {
           gameType,
-          maxPlayers,
           entryFee
         },
-        take: maxPlayers,
+        take: playersToMatch,
         include: {
           user: true
         },
@@ -120,12 +126,12 @@ class MatchmakingService {
         }
       });
 
-      if (queueEntries.length < maxPlayers) {
+      if (queueEntries.length < playersToMatch) {
         return; // Not enough players
       }
 
       // Calculate prize pool (90% of total entry fees, 10% platform fee)
-      const totalEntryFees = entryFee * maxPlayers;
+      const totalEntryFees = entryFee * playersToMatch;
       const prizePool = totalEntryFees * 0.9;
 
       // Create game and process payments in transaction
@@ -134,7 +140,7 @@ class MatchmakingService {
         const game = await tx.game.create({
           data: {
             type: gameType,
-            maxPlayers,
+            maxPlayers: playersToMatch,
             entryFee,
             prizePool,
             status: 'WAITING'
@@ -148,8 +154,10 @@ class MatchmakingService {
         for (let i = 0; i < queueEntries.length; i++) {
           const queueEntry = queueEntries[i];
           
-          // Deduct entry fee
-          await walletService.deductGameEntry(queueEntry.userId, entryFee, game.id);
+          // Deduct entry fee only if not free game (memory game)
+          if (entryFee > 0) {
+            await walletService.deductGameEntry(queueEntry.userId, entryFee, game.id);
+          }
 
           // Create participation
           const participation = await tx.gameParticipation.create({
@@ -172,7 +180,7 @@ class MatchmakingService {
         return { game, participations, players: queueEntries.map(q => q.user) };
       });
 
-      logger.info(`Game created: ${result.game.id} with ${maxPlayers} players`);
+      logger.info(`Game created: ${result.game.id} with ${playersToMatch} players`);
 
       // Emit game created event (will be handled by socket service)
       this.onGameCreated && this.onGameCreated(result.game, result.players);

@@ -78,7 +78,7 @@ router.post('/create-deposit-order', authenticateToken, async (req, res) => {
 // Verify deposit payment
 router.post('/verify-deposit', authenticateToken, async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, amount } = req.body;
     const userId = req.user.id;
 
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
