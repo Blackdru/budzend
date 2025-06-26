@@ -23,6 +23,8 @@ const jwt = require('jsonwebtoken');
 const logger = require('./src/config/logger');
 const matchmakingService = require('./src/services/matchmakingService');
 const gameService = require('./src/services/gameService');
+const MemoryGameService = require('./src/MemoryGame');
+const FastLudoService = require('./src/FastLudoService');
 
 // Active socket management
 const activeSockets = new Map(); // socketId -> userId
@@ -30,6 +32,10 @@ const userSockets = new Map(); // userId -> socketId
 
 // Import auth middleware
 const { authenticateSocket } = require('./src/middleware/auth');
+
+// Initialize game services
+const memoryGameService = new MemoryGameService(io);
+const fastLudoService = new FastLudoService(io);
 
 // Socket authentication middleware
 io.use(authenticateSocket);
@@ -44,6 +50,12 @@ io.on('connection', (socket) => {
 
   // Join user-specific room for notifications
   socket.join(`user:${userId}`);
+
+  // Setup memory game handlers
+  memoryGameService.setupSocketHandlers(socket);
+  
+  // Setup fast ludo handlers
+  fastLudoService.setupSocketHandlers(socket);
 
   // Matchmaking events
   socket.on('joinMatchmaking', async (data) => {

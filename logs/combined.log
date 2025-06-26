@@ -222,3 +222,15 @@
 {"level":"info","message":"User cmcby295d0001pi6ueab08cb6 left matchmaking queue","service":"budzee-gaming","timestamp":"2025-06-26T07:47:45.471Z"}
 {"level":"info","message":"Socket disconnected: CkUqwyuQF3IrudDyAAAD (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T07:48:07.769Z"}
 {"level":"info","message":"SIGINT received, shutting down gracefully","service":"budzee-gaming","timestamp":"2025-06-26T07:49:13.342Z"}
+{"level":"info","message":"✅ Database connected successfully","service":"budzee-gaming","timestamp":"2025-06-26T08:34:28.620Z"}
+{"level":"info","message":"🚀 Professional Gaming Platform server running on port 8080","service":"budzee-gaming","timestamp":"2025-06-26T08:34:28.629Z"}
+{"level":"info","message":"📱 API Base URL: http://localhost:8080/api","service":"budzee-gaming","timestamp":"2025-06-26T08:34:28.630Z"}
+{"level":"info","message":"🏥 Health Check: http://localhost:8080/health","service":"budzee-gaming","timestamp":"2025-06-26T08:34:28.631Z"}
+{"level":"info","message":"🔧 Environment: development","service":"budzee-gaming","timestamp":"2025-06-26T08:34:28.632Z"}
+{"level":"info","message":"Socket connected: mWjabWZvl4LNyTQyAAAB (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T08:39:38.217Z"}
+{"level":"error","message":"Create deposit order error: Cannot destructure property 'amount' of 'req.body' as it is undefined.","service":"budzee-gaming","stack":"TypeError: Cannot destructure property 'amount' of 'req.body' as it is undefined.\n    at C:\\Users\\HOME\\Desktop\\Budzee\\backend\\src\\routes\\payment.js:18:13\n    at Layer.handleRequest (C:\\Users\\HOME\\Desktop\\Budzee\\backend\\node_modules\\router\\lib\\layer.js:152:17)\n    at next (C:\\Users\\HOME\\Desktop\\Budzee\\backend\\node_modules\\router\\lib\\route.js:157:13)\n    at authenticateToken (C:\\Users\\HOME\\Desktop\\Budzee\\backend\\src\\middleware\\auth.js:27:5)","timestamp":"2025-06-26T08:40:24.545Z"}
+{"level":"info","message":"Socket disconnected: mWjabWZvl4LNyTQyAAAB (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T08:43:11.424Z"}
+{"level":"info","message":"Socket connected: yDuxKQyLtYCjBBqmAAAD (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T08:43:11.731Z"}
+{"level":"info","message":"Socket disconnected: yDuxKQyLtYCjBBqmAAAD (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T08:44:12.516Z"}
+{"level":"info","message":"Socket connected: aOYxD3IGqCVe61ZFAAAF (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T08:44:27.181Z"}
+{"level":"info","message":"Socket disconnected: aOYxD3IGqCVe61ZFAAAF (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T08:48:21.018Z"}
