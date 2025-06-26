@@ -111,8 +111,6 @@ router.post('/verify-deposit', authenticateToken, async (req, res) => {
       });
     }
 
-    const amount = payment.amount / 100; // Convert from paise to rupees
-
     // Process the deposit
     const result = await walletService.processDeposit(
       userId,

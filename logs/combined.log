@@ -234,3 +234,19 @@
 {"level":"info","message":"Socket disconnected: yDuxKQyLtYCjBBqmAAAD (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T08:44:12.516Z"}
 {"level":"info","message":"Socket connected: aOYxD3IGqCVe61ZFAAAF (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T08:44:27.181Z"}
 {"level":"info","message":"Socket disconnected: aOYxD3IGqCVe61ZFAAAF (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T08:48:21.018Z"}
+{"level":"info","message":"✅ Database connected successfully","service":"budzee-gaming","timestamp":"2025-06-26T09:50:44.382Z"}
+{"level":"info","message":"🚀 Professional Gaming Platform server running on port 8080","service":"budzee-gaming","timestamp":"2025-06-26T09:50:44.390Z"}
+{"level":"info","message":"📱 API Base URL: http://localhost:8080/api","service":"budzee-gaming","timestamp":"2025-06-26T09:50:44.390Z"}
+{"level":"info","message":"🏥 Health Check: http://localhost:8080/health","service":"budzee-gaming","timestamp":"2025-06-26T09:50:44.390Z"}
+{"level":"info","message":"🔧 Environment: production","service":"budzee-gaming","timestamp":"2025-06-26T09:50:44.390Z"}
+{"level":"info","message":"✅ Database connected successfully","service":"budzee-gaming","timestamp":"2025-06-26T09:50:46.762Z"}
+{"level":"info","message":"🚀 Professional Gaming Platform server running on port 8080","service":"budzee-gaming","timestamp":"2025-06-26T09:50:46.771Z"}
+{"level":"info","message":"📱 API Base URL: http://localhost:8080/api","service":"budzee-gaming","timestamp":"2025-06-26T09:50:46.771Z"}
+{"level":"info","message":"🏥 Health Check: http://localhost:8080/health","service":"budzee-gaming","timestamp":"2025-06-26T09:50:46.772Z"}
+{"level":"info","message":"🔧 Environment: production","service":"budzee-gaming","timestamp":"2025-06-26T09:50:46.772Z"}
+{"level":"info","message":"✅ Database connected successfully","service":"budzee-gaming","timestamp":"2025-06-26T09:50:56.441Z"}
+{"level":"info","message":"🚀 Professional Gaming Platform server running on port 8080","service":"budzee-gaming","timestamp":"2025-06-26T09:50:56.450Z"}
+{"level":"info","message":"📱 API Base URL: http://localhost:8080/api","service":"budzee-gaming","timestamp":"2025-06-26T09:50:56.450Z"}
+{"level":"info","message":"🏥 Health Check: http://localhost:8080/health","service":"budzee-gaming","timestamp":"2025-06-26T09:50:56.451Z"}
+{"level":"info","message":"🔧 Environment: production","service":"budzee-gaming","timestamp":"2025-06-26T09:50:56.451Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"budzee-gaming","timestamp":"2025-06-26T09:51:00.401Z"}
