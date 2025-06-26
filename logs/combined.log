@@ -202,3 +202,23 @@
 {"level":"info","message":"Socket connected: CP9D8yLMhEjfbUnTAAAF (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-25T12:47:12.018Z"}
 {"level":"info","message":"Socket disconnected: CP9D8yLMhEjfbUnTAAAF (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-25T12:49:21.988Z"}
 {"level":"info","message":"Socket disconnected: qJThBQD115RPOdN4AAAD (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-25T12:49:21.993Z"}
+{"level":"info","message":"✅ Database connected successfully","service":"budzee-gaming","timestamp":"2025-06-25T13:02:49.598Z"}
+{"level":"info","message":"🚀 Professional Gaming Platform server running on port 8080","service":"budzee-gaming","timestamp":"2025-06-25T13:02:49.609Z"}
+{"level":"info","message":"📱 API Base URL: http://localhost:8080/api","service":"budzee-gaming","timestamp":"2025-06-25T13:02:49.611Z"}
+{"level":"info","message":"🏥 Health Check: http://localhost:8080/health","service":"budzee-gaming","timestamp":"2025-06-25T13:02:49.612Z"}
+{"level":"info","message":"🔧 Environment: development","service":"budzee-gaming","timestamp":"2025-06-25T13:02:49.613Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"budzee-gaming","timestamp":"2025-06-25T13:04:38.440Z"}
+{"level":"info","message":"✅ Database connected successfully","service":"budzee-gaming","timestamp":"2025-06-26T07:43:05.294Z"}
+{"level":"info","message":"🚀 Professional Gaming Platform server running on port 8080","service":"budzee-gaming","timestamp":"2025-06-26T07:43:05.308Z"}
+{"level":"info","message":"📱 API Base URL: http://localhost:8080/api","service":"budzee-gaming","timestamp":"2025-06-26T07:43:05.309Z"}
+{"level":"info","message":"🏥 Health Check: http://localhost:8080/health","service":"budzee-gaming","timestamp":"2025-06-26T07:43:05.310Z"}
+{"level":"info","message":"🔧 Environment: development","service":"budzee-gaming","timestamp":"2025-06-26T07:43:05.311Z"}
+{"level":"info","message":"Socket connected: Z1mP5Xgj1r4F4tY2AAAB (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T07:44:55.744Z"}
+{"level":"info","message":"Socket disconnected: Z1mP5Xgj1r4F4tY2AAAB (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T07:45:50.079Z"}
+{"level":"info","message":"Socket connected: CkUqwyuQF3IrudDyAAAD (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T07:46:10.538Z"}
+{"level":"error","message":"Create deposit order error: Cannot destructure property 'amount' of 'req.body' as it is undefined.","service":"budzee-gaming","stack":"TypeError: Cannot destructure property 'amount' of 'req.body' as it is undefined.\n    at C:\\Users\\HOME\\Desktop\\Budzee\\backend\\src\\routes\\payment.js:18:13\n    at Layer.handleRequest (C:\\Users\\HOME\\Desktop\\Budzee\\backend\\node_modules\\router\\lib\\layer.js:152:17)\n    at next (C:\\Users\\HOME\\Desktop\\Budzee\\backend\\node_modules\\router\\lib\\route.js:157:13)\n    at authenticateToken (C:\\Users\\HOME\\Desktop\\Budzee\\backend\\src\\middleware\\auth.js:27:5)","timestamp":"2025-06-26T07:46:36.425Z"}
+{"level":"info","message":"Socket connected: H7RZMHrVKwugq1UdAAAF (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T07:47:35.760Z"}
+{"level":"info","message":"Socket disconnected: H7RZMHrVKwugq1UdAAAF (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T07:47:45.452Z"}
+{"level":"info","message":"User cmcby295d0001pi6ueab08cb6 left matchmaking queue","service":"budzee-gaming","timestamp":"2025-06-26T07:47:45.471Z"}
+{"level":"info","message":"Socket disconnected: CkUqwyuQF3IrudDyAAAD (user: cmcby295d0001pi6ueab08cb6)","service":"budzee-gaming","timestamp":"2025-06-26T07:48:07.769Z"}
+{"level":"info","message":"SIGINT received, shutting down gracefully","service":"budzee-gaming","timestamp":"2025-06-26T07:49:13.342Z"}
