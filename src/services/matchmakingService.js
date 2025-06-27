@@ -12,17 +12,22 @@ class MatchmakingService {
     // Run matchmaking every 3 seconds for faster matching
     this.matchmakingInterval = setInterval(() => {
       this.processMatchmaking();
-    }, 3000);
+    }, 5000);
   }
 
   async joinQueue(userId, gameType, maxPlayers, entryFee) {
     try {
+      logger.info(`🎯 User ${userId} attempting to join queue: ${gameType} - ${maxPlayers}P - ₹${entryFee}`);
+      
       // Check if user has sufficient balance (skip for free games)
       if (entryFee > 0) {
         const balance = await walletService.getWalletBalance(userId);
+        logger.info(`💰 User ${userId} balance: ₹${balance}, required: ₹${entryFee}`);
         if (balance < entryFee) {
           throw new Error('Insufficient balance');
         }
+      } else {
+        logger.info(`🆓 Free game - skipping balance check for user ${userId}`);
       }
 
       // Check if user is already in queue
@@ -31,7 +36,10 @@ class MatchmakingService {
       });
 
       if (existingQueue) {
-        throw new Error('Already in matchmaking queue');
+        logger.info(`⚠️ User ${userId} already in queue - removing old entry`);
+        await prisma.matchmakingQueue.delete({
+          where: { id: existingQueue.id }
+        });
       }
 
       // Add to queue
@@ -44,7 +52,7 @@ class MatchmakingService {
         }
       });
 
-      logger.info(`User ${userId} joined matchmaking queue`);
+      logger.info(`✅ User ${userId} successfully joined matchmaking queue (ID: ${queueEntry.id})`);
 
       return {
         success: true,
@@ -75,9 +83,26 @@ class MatchmakingService {
 
   async processMatchmaking() {
     try {
-      // Group queue entries by game type, max players, and entry fee
+      logger.info('🔍 Processing matchmaking...');
+      
+      // First, let's see what's in the queue
+      const allQueueEntries = await prisma.matchmakingQueue.findMany({
+        include: { user: true }
+      });
+      
+      logger.info(`📊 Total queue entries: ${allQueueEntries.length}`);
+      allQueueEntries.forEach(entry => {
+        logger.info(`   - User ${entry.userId} (${entry.user.name}) - ${entry.gameType} - ${entry.maxPlayers}P - ₹${entry.entryFee}`);
+      });
+
+      if (allQueueEntries.length < 2) {
+        logger.info('❌ Not enough players in queue (need at least 2)');
+        return;
+      }
+
+      // Group queue entries by game type and entry fee (ignore maxPlayers for now)
       const queueGroups = await prisma.matchmakingQueue.groupBy({
-        by: ['gameType', 'maxPlayers', 'entryFee'],
+        by: ['gameType', 'entryFee'],
         _count: {
           id: true
         },
@@ -90,18 +115,18 @@ class MatchmakingService {
         }
       });
 
+      logger.info(`🎯 Found ${queueGroups.length} matchable groups`);
+
       for (const group of queueGroups) {
-        const { gameType, maxPlayers, entryFee } = group;
+        const { gameType, entryFee } = group;
         const availableCount = group._count.id;
 
-        // For memory games, start with 2 players
-        // For other games, can start with 2 players minimum
-        const minPlayers = 2;
+        logger.info(`🎮 Processing group: ${gameType} - ₹${entryFee} - ${availableCount} players`);
         
-        if (availableCount >= minPlayers) {
-          // Start game with available players (minimum 2)
-          const playersToMatch = Math.min(availableCount, maxPlayers);
-          await this.createGame(gameType, playersToMatch, entryFee);
+        if (availableCount >= 2) {
+          // Start game with 2 players (can expand later)
+          logger.info(`✅ Creating game with 2 players for ${gameType}`);
+          await this.createGame(gameType, 2, entryFee);
         }
       }
     } catch (error) {
@@ -111,6 +136,8 @@ class MatchmakingService {
 
   async createGame(gameType, playersToMatch, entryFee) {
     try {
+      logger.info(`🎮 Creating game: ${gameType} - ${playersToMatch} players - ₹${entryFee}`);
+      
       // Get players from queue
       const queueEntries = await prisma.matchmakingQueue.findMany({
         where: {
@@ -126,7 +153,13 @@ class MatchmakingService {
         }
       });
 
+      logger.info(`📋 Found ${queueEntries.length} queue entries for matching`);
+      queueEntries.forEach(entry => {
+        logger.info(`   - ${entry.user.name} (${entry.userId})`);
+      });
+
       if (queueEntries.length < playersToMatch) {
+        logger.info(`❌ Not enough players: need ${playersToMatch}, found ${queueEntries.length}`);
         return; // Not enough players
       }
 

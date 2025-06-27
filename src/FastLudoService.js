@@ -26,6 +26,17 @@ class FastLudoService {
     socket.on('ROLL_FAST_LUDO_DICE', (data) => this.rollDice(socket, data));
     socket.on('MOVE_FAST_LUDO_PIECE', (data) => this.movePiece(socket, data));
     socket.on('JOIN_FAST_LUDO_ROOM', (data) => this.joinRoom(socket, data));
+    
+    // Auto-join room when socket connects (for matchmaking integration)
+    socket.on('joinGameRoom', (data) => {
+      if (data.gameId) {
+        this.joinRoom(socket, {
+          gameId: data.gameId,
+          playerId: socket.user.id,
+          playerName: socket.user.name
+        });
+      }
+    });
   }
 
   initializeGameBoard(maxPlayers) {
@@ -51,7 +62,15 @@ class FastLudoService {
 
   startGame(socket, { gameId, playerId }) {
     const game = this.games.get(gameId);
-    if (!game || game.players.length < 2) return;
+    if (!game) {
+      console.log(`Fast Ludo: Game ${gameId} not found`);
+      return;
+    }
+    
+    if (game.players.length < 2) {
+      console.log(`Fast Ludo: Not enough players in game ${gameId}. Current: ${game.players.length}`);
+      return;
+    }
 
     const gameBoard = this.initializeGameBoard(game.players.length);
     
@@ -74,6 +93,8 @@ class FastLudoService {
       endTime: Date.now() + timerDuration
     };
 
+    console.log(`Fast Ludo: Starting game ${gameId} with ${game.players.length} players`);
+
     this.io.to(gameId).emit('FAST_LUDO_GAME_STARTED', {
       gameBoard: gameBoard,
       players: game.players,
@@ -90,6 +111,7 @@ class FastLudoService {
     this.startGameTimer(gameId);
 
     logger.info(`Fast Ludo game ${gameId} started with ${game.players.length} players`);
+    console.log(`Fast Ludo: Game started in ${gameId}`);
   }
 
   startGameTimer(gameId) {
@@ -370,7 +392,7 @@ class FastLudoService {
       playersCount: game.players.length
     });
 
-    logger.info(`Player ${playerId} joined Fast Ludo game ${gameId}`);
+    logger.info(`Fast Ludo: Player ${playerName} joined game ${gameId}. Total players: ${game.players.length}`);
   }
 }
 

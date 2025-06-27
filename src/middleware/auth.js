@@ -33,13 +33,19 @@ const authenticateToken = async (req, res, next) => {
 
 const authenticateSocket = async (socket, next) => {
   try {
+    logger.info(`🔐 SOCKET AUTH: Authenticating socket ${socket.id}`);
+    
     const token = socket.handshake.auth.token;
     
     if (!token) {
+      logger.error(`❌ SOCKET AUTH: No token provided for socket ${socket.id}`);
       return next(new Error('Authentication error: No token provided'));
     }
 
+    logger.info(`🎫 SOCKET AUTH: Token received for socket ${socket.id}`);
+    
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    logger.info(`✅ SOCKET AUTH: Token decoded successfully for user ${decoded.userId}`);
     
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
@@ -47,13 +53,18 @@ const authenticateSocket = async (socket, next) => {
     });
 
     if (!user) {
+      logger.error(`❌ SOCKET AUTH: User ${decoded.userId} not found in database`);
       return next(new Error('Authentication error: Invalid token'));
     }
 
+    logger.info(`👤 SOCKET AUTH: User authenticated - ${user.name} (${user.phoneNumber})`);
+    logger.info(`💰 SOCKET AUTH: User balance - ₹${user.wallet ? user.wallet.balance : 0}`);
+
     socket.user = user;
+    logger.info(`✅ SOCKET AUTH: Authentication successful for socket ${socket.id}`);
     next();
   } catch (error) {
-    logger.error('Socket authentication error:', error);
+    logger.error(`❌ SOCKET AUTH ERROR for socket ${socket.id}:`, error);
     next(new Error('Authentication error: Invalid token'));
   }
 };

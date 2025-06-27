@@ -18,6 +18,17 @@ class MemoryGameService {
     socket.on('START_MEMORY_GAME', (data) => this.startMemoryGame(socket, data));
     socket.on('SELECT_MEMORY_CARD', (data) => this.selectCard(socket, data));
     socket.on('JOIN_MEMORY_ROOM', (data) => this.joinRoom(socket, data));
+    
+    // Auto-join room when socket connects (for matchmaking integration)
+    socket.on('joinGameRoom', (data) => {
+      if (data.gameId) {
+        this.joinRoom(socket, {
+          roomId: data.gameId,
+          playerId: socket.user.id,
+          playerName: socket.user.name
+        });
+      }
+    });
   }
 
   generateGameBoard() {
@@ -42,7 +53,15 @@ class MemoryGameService {
 
   startMemoryGame(socket, { roomId, playerId }) {
     const room = this.rooms.get(roomId);
-    if (!room || room.players.length < 2) return;
+    if (!room) {
+      console.log(`Memory Game: Room ${roomId} not found`);
+      return;
+    }
+    
+    if (room.players.length < 2) {
+      console.log(`Memory Game: Not enough players in room ${roomId}. Current: ${room.players.length}`);
+      return;
+    }
 
     const gameBoard = this.generateGameBoard();
     
@@ -56,6 +75,8 @@ class MemoryGameService {
       status: 'playing',
     };
 
+    console.log(`Memory Game: Starting game in room ${roomId} with ${room.players.length} players`);
+
     this.io.to(roomId).emit('MEMORY_GAME_STARTED', {
       gameBoard: gameBoard.map(card => ({ 
         id: card.id, 
@@ -68,6 +89,8 @@ class MemoryGameService {
     this.io.to(roomId).emit('MEMORY_GAME_CURRENT_TURN', {
       currentPlayer: room.gameState.currentTurn,
     });
+    
+    console.log(`Memory Game: Game started in room ${roomId}`);
   }
 
   selectCard(socket, { roomId, playerId, position }) {
@@ -223,6 +246,8 @@ class MemoryGameService {
       playerName,
       playersCount: room.players.length,
     });
+    
+    console.log(`Memory Game: Player ${playerName} joined room ${roomId}. Total players: ${room.players.length}`);
   }
 }
 

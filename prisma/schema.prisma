@@ -150,6 +150,8 @@ enum TransactionStatus {
 
 enum GameType {
   LUDO
+  FAST_LUDO
+  MEMORY
   // Future games can be added here
 }
 
