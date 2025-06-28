@@ -17,7 +17,15 @@ const authenticateToken = async (req, res, next) => {
     // Verify user exists and is active
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      include: { wallet: true }
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        email: true,
+        createdAt: true,
+        updatedAt: true,
+        wallet: true
+      }
     });
 
     if (!user) {
@@ -25,8 +33,14 @@ const authenticateToken = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Invalid token' });
     }
 
+    // Ensure user has a name, use phone number as fallback
+    if (!user.name || user.name.trim() === '') {
+      logger.warn(`⚠️ HTTP AUTH: User ${user.id} has no name, using phone number as fallback`);
+      user.name = user.phoneNumber || `User${user.id.slice(-4)}`;
+    }
+
     req.user = user;
-    logger.debug(`Auth Token: User ${user.id} authenticated for HTTP request.`);
+    logger.debug(`Auth Token: User ${user.id} (${user.name}) authenticated for HTTP request.`);
     next();
   } catch (error) {
     logger.error('Auth Token: Authentication error:', error);
@@ -59,12 +73,26 @@ const authenticateSocket = async (socket, next) => {
     
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      include: { wallet: true }
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        email: true,
+        createdAt: true,
+        updatedAt: true,
+        wallet: true
+      }
     });
 
     if (!user) {
       logger.warn(`❌ SOCKET AUTH: User ${decoded.userId} not found in database`);
       return next(new Error('Authentication error: Invalid user')); // This error will be caught by io.use's callback
+    }
+
+    // Ensure user has a name, use phone number as fallback
+    if (!user.name || user.name.trim() === '') {
+      logger.warn(`⚠️ SOCKET AUTH: User ${user.id} has no name, using phone number as fallback`);
+      user.name = user.phoneNumber || `User${user.id.slice(-4)}`;
     }
 
     logger.info(`👤 SOCKET AUTH: User authenticated - ${user.name} (${user.phoneNumber}) (ID: ${user.id})`);

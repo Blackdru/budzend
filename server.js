@@ -43,12 +43,15 @@ io.on('connection', (socket) => {
   socket.join(`user:${userId}`);
   logger.info(`User connected: ${userName} (${userId})`);
 
-  // Send connection confirmation
+  // Send connection confirmation with complete user data
   socket.emit('connected', { 
     userId, 
     userName,
+    userPhone: socket.user.phoneNumber,
     message: 'Successfully connected to game server' 
   });
+  
+  logger.info(`📤 Sent connection confirmation to user ${userId} with name: ${userName}`);
 
   // Setup game handlers
   memoryGameService.setupSocketHandlers(socket);
@@ -58,7 +61,7 @@ io.on('connection', (socket) => {
   // Matchmaking events
   socket.on('joinMatchmaking', async (data) => {
     try {
-      logger.info(`User ${userId} attempting to join matchmaking:`, data);
+      logger.info(`🎯 User ${userId} (${userName}) attempting to join matchmaking:`, data);
       
       const { error, value } = gameSchemas.joinMatchmaking.validate(data);
       if (error) {
@@ -87,18 +90,22 @@ io.on('connection', (socket) => {
         return socket.emit('matchmakingError', { message: 'Invalid entry fee' });
       }
 
+      logger.info(`📝 Matchmaking request validated for user ${userId} (${userName}): ${gameType} ${maxPlayers}P ₹${entryFee}`);
+
       await matchmakingService.joinQueue(userId, gameType, maxPlayers, entryFee);
       socket.emit('matchmakingStatus', { 
         status: 'waiting', 
         message: 'Waiting for players...',
         gameType,
         maxPlayers,
-        entryFee
+        entryFee,
+        playerName: userName,
+        playerId: userId
       });
       
-      logger.info(`User ${userId} successfully joined matchmaking queue`);
+      logger.info(`✅ User ${userId} (${userName}) successfully joined matchmaking queue`);
     } catch (err) {
-      logger.error(`Matchmaking join error for user ${userId}:`, err);
+      logger.error(`❌ Matchmaking join error for user ${userId} (${userName}):`, err);
       const message = err.message === 'Insufficient balance' 
         ? 'Insufficient balance to join this game'
         : 'Failed to join matchmaking';
@@ -420,11 +427,18 @@ matchmakingService.setGameCreatedCallback(async (game, matchedUsers) => {
             socket.emit('matchFound', {
               gameId: game.id,
               gameType: game.type,
-              players: matchedUsers.map(u => ({ id: u.id, name: u.name })),
+              players: matchedUsers.map(u => ({ 
+                id: u.id, 
+                name: u.name || u.phoneNumber || `User${u.id.slice(-4)}`,
+                phoneNumber: u.phoneNumber 
+              })),
               yourPlayerId: user.id,
+              yourPlayerName: user.name || user.phoneNumber || `User${user.id.slice(-4)}`,
               yourPlayerIndex: participant?.position || -1,
               yourPlayerColor: participant?.color || null,
             });
+            
+            logger.info(`📤 Sent matchFound to user ${user.id} (${user.name}) for game ${game.id}`);
             
             socket.join(`game:${game.id}`);
             
