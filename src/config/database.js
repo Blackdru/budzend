@@ -19,22 +19,10 @@ async function testConnection() {
 // Initialize connection test
 testConnection();
 
-// Handle graceful shutdown
+// Handle graceful shutdown - only disconnect, don't exit
 process.on('beforeExit', async () => {
   console.log('Disconnecting from database...');
   await prisma.$disconnect();
-});
-
-process.on('SIGINT', async () => {
-  console.log('Received SIGINT, disconnecting from database...');
-  await prisma.$disconnect();
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  console.log('Received SIGTERM, disconnecting from database...');
-  await prisma.$disconnect();
-  process.exit(0);
 });
 
 module.exports = prisma;

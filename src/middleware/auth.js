@@ -8,6 +8,7 @@ const authenticateToken = async (req, res, next) => {
     const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) {
+      logger.warn('Auth Token: No token provided for HTTP request');
       return res.status(401).json({ success: false, message: 'Access token required' });
     }
 
@@ -20,14 +21,23 @@ const authenticateToken = async (req, res, next) => {
     });
 
     if (!user) {
+      logger.warn(`Auth Token: User ${decoded.userId} not found or inactive`);
       return res.status(401).json({ success: false, message: 'Invalid token' });
     }
 
     req.user = user;
+    logger.debug(`Auth Token: User ${user.id} authenticated for HTTP request.`);
     next();
   } catch (error) {
-    logger.error('Authentication error:', error);
-    return res.status(403).json({ success: false, message: 'Invalid or expired token' });
+    logger.error('Auth Token: Authentication error:', error);
+    // Explicitly check for specific JWT errors for more granular responses
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ success: false, message: 'Token expired. Please log in again.' });
+    }
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(403).json({ success: false, message: 'Invalid token.' });
+    }
+    return res.status(500).json({ success: false, message: 'Authentication failed due to server error.' });
   }
 };
 
@@ -38,14 +48,14 @@ const authenticateSocket = async (socket, next) => {
     const token = socket.handshake.auth.token;
     
     if (!token) {
-      logger.error(`❌ SOCKET AUTH: No token provided for socket ${socket.id}`);
-      return next(new Error('Authentication error: No token provided'));
+      logger.warn(`❌ SOCKET AUTH: No token provided for socket ${socket.id}`);
+      return next(new Error('Authentication error: No token provided')); // This error will be caught by io.use's callback
     }
 
-    logger.info(`🎫 SOCKET AUTH: Token received for socket ${socket.id}`);
+    logger.debug(`🎫 SOCKET AUTH: Token received for socket ${socket.id}`);
     
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    logger.info(`✅ SOCKET AUTH: Token decoded successfully for user ${decoded.userId}`);
+    logger.debug(`✅ SOCKET AUTH: Token decoded successfully for user ${decoded.userId}`);
     
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
@@ -53,19 +63,26 @@ const authenticateSocket = async (socket, next) => {
     });
 
     if (!user) {
-      logger.error(`❌ SOCKET AUTH: User ${decoded.userId} not found in database`);
-      return next(new Error('Authentication error: Invalid token'));
+      logger.warn(`❌ SOCKET AUTH: User ${decoded.userId} not found in database`);
+      return next(new Error('Authentication error: Invalid user')); // This error will be caught by io.use's callback
     }
 
-    logger.info(`👤 SOCKET AUTH: User authenticated - ${user.name} (${user.phoneNumber})`);
-    logger.info(`💰 SOCKET AUTH: User balance - ₹${user.wallet ? user.wallet.balance : 0}`);
+    logger.info(`👤 SOCKET AUTH: User authenticated - ${user.name} (${user.phoneNumber}) (ID: ${user.id})`);
+    logger.debug(`💰 SOCKET AUTH: User balance - ₹${user.wallet ? user.wallet.balance : 0}`);
 
-    socket.user = user;
-    logger.info(`✅ SOCKET AUTH: Authentication successful for socket ${socket.id}`);
-    next();
+    socket.user = user; // Attach user object to socket
+    next(); // Authentication successful, proceed with connection
   } catch (error) {
     logger.error(`❌ SOCKET AUTH ERROR for socket ${socket.id}:`, error);
-    next(new Error('Authentication error: Invalid token'));
+    // Important: For socket.io middleware, call next(error) to reject the connection.
+    // The server.js io.use block will handle what to do with this error (e.g., disconnect).
+    if (error.name === 'TokenExpiredError') {
+      return next(new Error('Authentication error: Token expired'));
+    }
+    if (error.name === 'JsonWebTokenError') {
+      return next(new Error('Authentication error: Invalid token'));
+    }
+    next(new Error('Authentication error: Internal server problem'));
   }
 };
 

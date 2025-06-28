@@ -5,10 +5,17 @@ const logger = require('../config/logger');
 
 class WalletService {
   constructor() {
-    this.razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
-    });
+    // Ensure Razorpay keys are loaded from environment variables
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+      logger.error('RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET not configured. Razorpay functionalities will be unavailable.');
+      this.razorpay = null; // Set to null to indicate it's not configured
+    } else {
+      this.razorpay = new Razorpay({
+        key_id: process.env.RAZORPAY_KEY_ID,
+        key_secret: process.env.RAZORPAY_KEY_SECRET,
+      });
+      logger.info('Razorpay instance initialized.');
+    }
   }
 
   async getWallet(userId) {
@@ -19,17 +26,18 @@ class WalletService {
 
       // Create wallet if it doesn't exist
       if (!wallet) {
+        logger.info(`Creating new wallet for user ${userId}`);
         wallet = await prisma.wallet.create({
           data: {
             userId,
-            balance: 0
+            balance: 0 // Initialize balance to 0
           }
         });
       }
 
       return wallet;
     } catch (error) {
-      logger.error('Get wallet error:', error);
+      logger.error(`Get wallet error for user ${userId}:`, error);
       throw new Error('Failed to get wallet');
     }
   }
@@ -37,20 +45,27 @@ class WalletService {
   async getWalletBalance(userId) {
     try {
       const wallet = await this.getWallet(userId);
-      return parseFloat(wallet.balance);
+      return parseFloat(wallet.balance); // Ensure balance is returned as a float
     } catch (error) {
-      logger.error('Get wallet balance error:', error);
+      logger.error(`Get wallet balance error for user ${userId}:`, error);
       throw new Error('Failed to get wallet balance');
     }
   }
 
   async createTransaction(userId, type, amount, status, description, razorpayOrderId = null, gameId = null) {
     try {
+      // Ensure amount is a number for Prisma
+      const numericAmount = parseFloat(amount);
+      if (isNaN(numericAmount)) {
+        logger.error(`Invalid amount for transaction: ${amount}`);
+        throw new Error('Invalid amount for transaction');
+      }
+
       return await prisma.transaction.create({
         data: {
           userId,
           type,
-          amount: parseFloat(amount),
+          amount: numericAmount,
           status,
           description,
           razorpayOrderId,
@@ -58,7 +73,7 @@ class WalletService {
         }
       });
     } catch (error) {
-      logger.error('Create transaction error:', error);
+      logger.error(`Create transaction error for user ${userId}:`, error);
       throw new Error('Failed to create transaction');
     }
   }
@@ -76,7 +91,26 @@ class WalletService {
       });
 
       if (!transaction) {
-        return { success: false, message: 'Transaction not found' };
+        logger.warn(`Deposit transaction not found or already processed for user ${userId}, order ${razorpayOrderId}`);
+        return { success: false, message: 'Transaction not found or already processed' };
+      }
+
+      // Verify payment signature (crucial for security)
+      if (this.razorpay) {
+        const generatedSignature = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+                                       .update(razorpayOrderId + "|" + razorpayPaymentId)
+                                       .digest('hex');
+        if (generatedSignature !== razorpaySignature) {
+          logger.error(`Razorpay signature mismatch for user ${userId}, order ${razorpayOrderId}`);
+          // Update transaction to FAILED if signature doesn't match
+          await prisma.transaction.update({
+            where: { id: transaction.id },
+            data: { status: 'FAILED', description: 'Signature verification failed' }
+          });
+          return { success: false, message: 'Payment verification failed' };
+        }
+      } else {
+        logger.warn('Razorpay not configured. Skipping signature verification for deposit.');
       }
 
       // Update transaction and wallet in a database transaction
@@ -91,19 +125,19 @@ class WalletService {
           }
         });
 
-        // Ensure wallet exists
+        // Ensure wallet exists before updating balance
         await tx.wallet.upsert({
           where: { userId },
-          create: { userId, balance: 0 },
-          update: {}
+          create: { userId, balance: 0 }, // Create with 0 if not exists
+          update: {} // No update needed if it exists
         });
 
-        // Update wallet balance
+        // Update wallet balance (ensure amount is number)
         const updatedWallet = await tx.wallet.update({
           where: { userId },
           data: {
             balance: {
-              increment: amount
+              increment: parseFloat(amount)
             }
           }
         });
@@ -111,7 +145,7 @@ class WalletService {
         return { transaction: updatedTransaction, wallet: updatedWallet };
       });
 
-      logger.info(`Deposit completed: User ${userId}, Amount: ${amount}`);
+      logger.info(`Deposit completed: User ${userId}, Amount: ${amount}, Transaction ID: ${result.transaction.id}`);
 
       return {
         success: true,
@@ -120,16 +154,32 @@ class WalletService {
         transactionId: result.transaction.id
       };
     } catch (error) {
-      logger.error('Process deposit error:', error);
+      logger.error(`Process deposit error for user ${userId}, order ${razorpayOrderId}:`, error);
       return { success: false, message: 'Failed to process deposit' };
     }
   }
 
   async createWithdrawalRequest(userId, amount, bankDetails) {
     try {
+      const numericAmount = parseFloat(amount);
+      if (isNaN(numericAmount) || numericAmount <= 0) {
+        throw new Error('Invalid withdrawal amount');
+      }
+
+      // Validate bank details
+      if (!bankDetails || !bankDetails.accountNumber || !bankDetails.ifscCode || !bankDetails.accountHolderName) {
+        throw new Error('Complete bank details are required');
+      }
+
+      // Minimum withdrawal amount check
+      if (numericAmount < 100) {
+        throw new Error('Minimum withdrawal amount is ₹100');
+      }
+
       const wallet = await this.getWallet(userId);
 
-      if (parseFloat(wallet.balance) < amount) {
+      if (parseFloat(wallet.balance) < numericAmount) {
+        logger.warn(`Insufficient balance for withdrawal: User ${userId}, Has: ${wallet.balance}, Wants: ${numericAmount}`);
         return { success: false, message: 'Insufficient balance' };
       }
 
@@ -140,9 +190,18 @@ class WalletService {
           data: {
             userId,
             type: 'WITHDRAWAL',
-            amount,
+            amount: numericAmount,
             status: 'PENDING',
-            description: `Wallet withdrawal of ₹${amount} to ${bankDetails.accountNumber}`
+            description: `Wallet withdrawal of ₹${numericAmount} to A/C: ${bankDetails.accountNumber.slice(-4)}, IFSC: ${bankDetails.ifscCode}`,
+            metadata: {
+              bankDetails: {
+                accountNumber: bankDetails.accountNumber,
+                ifscCode: bankDetails.ifscCode,
+                accountHolderName: bankDetails.accountHolderName,
+                bankName: bankDetails.bankName || 'Not specified'
+              },
+              requestedAt: new Date().toISOString()
+            }
           }
         });
 
@@ -151,7 +210,7 @@ class WalletService {
           where: { userId },
           data: {
             balance: {
-              decrement: amount
+              decrement: numericAmount
             }
           }
         });
@@ -160,37 +219,90 @@ class WalletService {
       });
 
       // In production, integrate with payout service here
-      // For demo, we'll auto-approve after 5 seconds
+      // For demo, we'll auto-approve after 30 seconds with proper error handling
+      logger.info(`Withdrawal request created: User ${userId}, Amount: ${numericAmount}, Transaction ID: ${result.transaction.id}. Auto-approving in 30s.`);
+      
       setTimeout(async () => {
         try {
-          await prisma.transaction.update({
-            where: { id: result.transaction.id },
-            data: { status: 'COMPLETED' }
+          // Check if transaction still exists and is pending
+          const existingTransaction = await prisma.transaction.findUnique({
+            where: { id: result.transaction.id }
           });
-          logger.info(`Withdrawal auto-approved: ${result.transaction.id}`);
-        } catch (err) {
-          logger.error('Auto-approval error:', err);
-        }
-      }, 5000);
 
-      logger.info(`Withdrawal request created: User ${userId}, Amount: ${amount}`);
+          if (!existingTransaction || existingTransaction.status !== 'PENDING') {
+            logger.info(`Transaction ${result.transaction.id} no longer pending, skipping auto-approval`);
+            return;
+          }
+
+          const approvedTransaction = await prisma.transaction.update({
+            where: { id: result.transaction.id },
+            data: { 
+              status: 'COMPLETED', 
+              description: 'Withdrawal auto-approved (Demo)',
+              updatedAt: new Date()
+            }
+          });
+          logger.info(`Withdrawal auto-approved: ${approvedTransaction.id} for user ${userId}`);
+          
+          // PRODUCTION: Emit socket event to notify user of approval (implement in production environment)
+          // io.to(`user:${userId}`).emit('withdrawalApproved', { transactionId: result.transaction.id });
+          
+        } catch (err) {
+          logger.error(`Auto-approval error for transaction ${result.transaction.id}:`, err);
+          
+          // Mark transaction as failed and refund the amount
+          try {
+            await prisma.$transaction(async (tx) => {
+              await tx.transaction.update({
+                where: { id: result.transaction.id },
+                data: { 
+                  status: 'FAILED', 
+                  description: 'Withdrawal failed during processing - amount refunded',
+                  updatedAt: new Date()
+                }
+              });
+
+              // Refund the amount back to wallet
+              await tx.wallet.update({
+                where: { userId },
+                data: {
+                  balance: {
+                    increment: numericAmount
+                  }
+                }
+              });
+            });
+            logger.info(`Withdrawal ${result.transaction.id} failed, amount refunded to user ${userId}`);
+          } catch (refundErr) {
+            logger.error(`Critical error: Failed to refund withdrawal ${result.transaction.id}:`, refundErr);
+            // This requires manual intervention
+          }
+        }
+      }, 30000); // 30 seconds delay
 
       return {
         success: true,
-        message: 'Withdrawal request created successfully',
-        transactionId: result.transaction.id
+        message: 'Withdrawal request created successfully, pending approval',
+        transactionId: result.transaction.id,
+        estimatedProcessingTime: '30 seconds (Demo mode)'
       };
     } catch (error) {
-      logger.error('Create withdrawal request error:', error);
-      return { success: false, message: 'Failed to create withdrawal request' };
+      logger.error(`Create withdrawal request error for user ${userId}:`, error);
+      return { success: false, message: error.message || 'Failed to create withdrawal request' };
     }
   }
 
   async deductWallet(userId, amount, type, description, gameId = null) {
     try {
+      const numericAmount = parseFloat(amount);
+      if (isNaN(numericAmount) || numericAmount <= 0) {
+        throw new Error('Invalid amount for deduction');
+      }
+
       const wallet = await this.getWallet(userId);
 
-      if (parseFloat(wallet.balance) < amount) {
+      if (parseFloat(wallet.balance) < numericAmount) {
+        logger.warn(`Insufficient balance for deduction: User ${userId}, Type: ${type}, Has: ${wallet.balance}, Wants: ${numericAmount}`);
         return { success: false, message: 'Insufficient balance' };
       }
 
@@ -200,8 +312,8 @@ class WalletService {
           data: {
             userId,
             type,
-            amount,
-            status: 'COMPLETED',
+            amount: numericAmount,
+            status: 'COMPLETED', // Deductions are typically completed immediately
             description,
             gameId
           }
@@ -212,7 +324,7 @@ class WalletService {
           where: { userId },
           data: {
             balance: {
-              decrement: amount
+              decrement: numericAmount
             }
           }
         });
@@ -220,14 +332,16 @@ class WalletService {
         return { transaction, wallet: updatedWallet };
       });
 
+      logger.info(`Wallet deducted: User ${userId}, Amount: ${numericAmount}, Type: ${type}, TransId: ${result.transaction.id}`);
+
       return {
         success: true,
         balance: parseFloat(result.wallet.balance),
         transactionId: result.transaction.id
       };
     } catch (error) {
-      logger.error('Deduct wallet error:', error);
-      return { success: false, message: 'Failed to deduct from wallet' };
+      logger.error(`Deduct wallet error for user ${userId}, type ${type}:`, error);
+      return { success: false, message: error.message || 'Failed to deduct from wallet' };
     }
   }
 
@@ -241,14 +355,20 @@ class WalletService {
         gameId
       );
     } catch (error) {
-      logger.error('Deduct game entry error:', error);
-      return { success: false, message: 'Failed to deduct game entry fee' };
+      logger.error(`Deduct game entry error for user ${userId}, game ${gameId}:`, error);
+      // Re-throw for matchmaking service to handle, e.g., if insufficient balance.
+      throw error; 
     }
   }
 
   async creditWallet(userId, amount, type, gameId = null, description = null) {
     try {
-      // Ensure wallet exists
+      const numericAmount = parseFloat(amount);
+      if (isNaN(numericAmount) || numericAmount <= 0) {
+        throw new Error('Invalid amount for credit');
+      }
+
+      // Ensure wallet exists (upsert can handle this)
       await this.getWallet(userId);
 
       const result = await prisma.$transaction(async (tx) => {
@@ -257,9 +377,9 @@ class WalletService {
           data: {
             userId,
             type,
-            amount,
-            status: 'COMPLETED',
-            description: description || `${type} of ₹${amount}`,
+            amount: numericAmount,
+            status: 'COMPLETED', // Credits are typically completed immediately
+            description: description || `${type} of ₹${numericAmount}`,
             gameId
           }
         });
@@ -269,7 +389,7 @@ class WalletService {
           where: { userId },
           data: {
             balance: {
-              increment: amount
+              increment: numericAmount
             }
           }
         });
@@ -277,7 +397,7 @@ class WalletService {
         return { transaction, wallet: updatedWallet };
       });
 
-      logger.info(`Wallet credited: User ${userId}, Amount: ${amount}, Type: ${type}`);
+      logger.info(`Wallet credited: User ${userId}, Amount: ${numericAmount}, Type: ${type}, TransId: ${result.transaction.id}`);
 
       return {
         success: true,
@@ -285,8 +405,8 @@ class WalletService {
         transactionId: result.transaction.id
       };
     } catch (error) {
-      logger.error('Credit wallet error:', error);
-      return { success: false, message: 'Failed to credit wallet' };
+      logger.error(`Credit wallet error for user ${userId}, type ${type}:`, error);
+      throw error; // Re-throw for higher-level error handling
     }
   }
 
@@ -321,7 +441,7 @@ class WalletService {
         }
       };
     } catch (error) {
-      logger.error('Get transaction history error:', error);
+      logger.error(`Get transaction history error for user ${userId}:`, error);
       throw new Error('Failed to get transaction history');
     }
   }
@@ -370,7 +490,7 @@ class WalletService {
 
       return formattedStats;
     } catch (error) {
-      logger.error('Get wallet stats error:', error);
+      logger.error(`Get wallet stats error for user ${userId}:`, error);
       throw new Error('Failed to get wallet stats');
     }
   }

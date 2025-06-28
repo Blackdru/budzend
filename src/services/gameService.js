@@ -11,331 +11,317 @@ class GameService {
       green: 26,
       yellow: 39
     };
+    this.SAFE_ZONES = [0, 13, 26, 39, 8, 21, 34, 47, 51, 12, 25, 38];
+    this.STAR_CELLS = [1, 9, 14, 22, 27, 35, 40, 48];
     this.COLORS = ['red', 'blue', 'green', 'yellow'];
+    this.POINTS = {
+      MOVE_OUT_HOME: 1,
+      MOVE: 0,
+      KILL: 5,
+      FINISH_TOKEN: 10,
+      KILLED_PENALTY: -3
+    };
   }
 
-  initializeGameBoard(maxPlayers) {
+  initializeLudoGameBoard(maxPlayers) {
     const board = {};
     const colors = this.COLORS.slice(0, maxPlayers);
     
     colors.forEach(color => {
       board[color] = {
         pieces: [
-          { id: 0, position: 'home', homeIndex: 0, boardPosition: -1, isInSafeZone: false },
-          { id: 1, position: 'home', homeIndex: 1, boardPosition: -1, isInSafeZone: false },
-          { id: 2, position: 'home', homeIndex: 2, boardPosition: -1, isInSafeZone: false },
-          { id: 3, position: 'home', homeIndex: 3, boardPosition: -1, isInSafeZone: false }
+          { id: 0, position: 'home', homeIndex: 0, boardPosition: -1 },
+          { id: 1, position: 'home', homeIndex: 1, boardPosition: -1 },
+          { id: 2, position: 'home', homeIndex: 2, boardPosition: -1 },
+          { id: 3, position: 'home', homeIndex: 3, boardPosition: -1 }
         ],
         piecesInHome: 4,
         piecesFinished: 0,
         score: 0
       };
     });
-    
+    logger.info(`Ludo game board initialized for ${maxPlayers} players.`);
     return board;
   }
 
-  async getGameById(gameId) {
-    return prisma.game.findUnique({
-      where: { id: gameId },
-      include: {
-        participants: { 
-          include: { user: true },
-          orderBy: { position: 'asc' }
-        }
-      }
-    });
+  /**
+   * Fixed Memory Game Board - 11 pairs (22 cards) with 10-second timer
+   */
+  initializeMemoryGameBoard() {
+    const CARD_SYMBOLS = [
+      '🎮', '🎯', '🎲', '🃏', '🎪', '🎨', '🎭', '💡',
+      '⚽', '🏀', '🏈'
+    ];
+    
+    // Use exactly 11 unique symbols for 22 cards (11 pairs) - odd number prevents ties
+    const selectedSymbols = CARD_SYMBOLS.slice(0, 11);
+    const cards = [...selectedSymbols, ...selectedSymbols]; // Create exactly 2 of each symbol
+    
+    // Shuffle the cards (Fisher-Yates)
+    for (let i = cards.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [cards[i], cards[j]] = [cards[j], cards[i]];
+    }
+
+    // Create card objects
+    const gameBoard = cards.map((symbol, index) => ({
+      id: index,
+      symbol,
+      isFlipped: false,
+      isMatched: false,
+    }));
+    
+    logger.info(`Memory game board initialized with ${gameBoard.length} cards (${selectedSymbols.length} pairs).`);
+    return gameBoard;
   }
 
-  async getUserActiveGame(userId) {
-    const participation = await prisma.gameParticipation.findFirst({
-      where: {
-        userId,
-        game: {
-          status: { in: ['WAITING', 'PLAYING'] }
-        }
-      },
-      include: { 
-        game: {
-          include: {
-            participants: { include: { user: true } }
+  async getGameById(gameId) {
+    // Validate gameId parameter
+    if (!gameId || typeof gameId !== 'string' || gameId.trim() === '') {
+      logger.warn(`Invalid gameId provided to getGameById: ${gameId}`);
+      return null;
+    }
+
+    try {
+      return await prisma.game.findUnique({
+        where: { id: gameId },
+        include: {
+          participants: { 
+            include: { user: true },
+            orderBy: { position: 'asc' }
           }
         }
-      }
-    });
-    return participation ? participation.game : null;
+      });
+    } catch (error) {
+      logger.error(`Error fetching game ${gameId}:`, error);
+      return null;
+    }
   }
 
-  async updateGameState(gameId, gameData, currentTurn) {
+  async getActiveGames() {
+    try {
+      return await prisma.game.findMany({
+        where: {
+          status: {
+            in: ['WAITING', 'PLAYING']
+          }
+        },
+        include: {
+          participants: { 
+            include: { user: true },
+            orderBy: { position: 'asc' }
+          }
+        }
+      });
+    } catch (error) {
+      logger.error('Error fetching active games:', error);
+      return [];
+    }
+  }
+
+  async updateGameState(gameId, newGameData, newCurrentTurn, newGameStatus = 'PLAYING', winnerId = null) {
     return prisma.game.update({
       where: { id: gameId },
       data: {
-        gameData,
-        currentTurn,
+        gameData: newGameData,
+        currentTurn: newCurrentTurn,
+        status: newGameStatus,
+        winner: winnerId,
+        finishedAt: newGameStatus === 'FINISHED' ? new Date() : undefined,
         updatedAt: new Date()
       }
     });
   }
 
-  async movePiece(gameId, userId, pieceId, diceValue) {
-    try {
-      const game = await this.getGameById(gameId);
-      if (!game) {
-        return { success: false, message: 'Game not found' };
+  getLudoPlayerColor(board, playerId) {
+    for (const color of this.COLORS) {
+      if (board[color] && board[color].playerId === playerId) {
+        return color;
       }
-
-      const gameData = game.gameData || {};
-      const board = gameData.board || this.initializeGameBoard(game.maxPlayers);
-      
-      // Find player and their color
-      const player = game.participants.find(p => p.userId === userId);
-      if (!player) {
-        return { success: false, message: 'Player not found in game' };
-      }
-
-      const playerColor = player.color;
-      const piece = board[playerColor].pieces[pieceId];
-      
-      if (!piece) {
-        return { success: false, message: 'Piece not found' };
-      }
-
-      // Validate move
-      const moveResult = this.validateAndExecuteMove(piece, diceValue, playerColor, board);
-      
-      if (!moveResult.success) {
-        return moveResult;
-      }
-
-      // Update board state
-      board[playerColor] = moveResult.updatedPlayerBoard;
-      gameData.board = board;
-      gameData.diceRolled = false;
-      gameData.diceValue = null;
-
-      // Check for winner
-      let nextTurn = game.currentTurn;
-      let gameStatus = game.status;
-      let winner = null;
-
-      if (board[playerColor].piecesFinished === 4) {
-        gameStatus = 'FINISHED';
-        winner = userId;
-        await this.finishGame(gameId, userId);
-      } else {
-        // Move to next turn (unless dice was 6)
-        if (diceValue !== 6) {
-          nextTurn = (game.currentTurn + 1) % game.participants.length;
-        }
-      }
-
-      // Update game state
-      await this.updateGameState(gameId, gameData, nextTurn);
-      
-      // Update player score
-      await this.updatePlayerScore(gameId, userId, board[playerColor].score);
-
-      return {
-        success: true,
-        board,
-        nextTurn,
-        gameStatus,
-        winner,
-        playerScore: board[playerColor].score
-      };
-
-    } catch (error) {
-      logger.error('Move piece error:', error);
-      return { success: false, message: 'Failed to process move' };
     }
+    return null;
   }
 
-  validateAndExecuteMove(piece, diceValue, playerColor, board) {
-    const playerBoard = { ...board[playerColor] };
-    const updatedPiece = { ...piece };
+  /**
+   * Fixed Memory Game Card Selection with proper validation
+   */
+  applyMemoryCardSelection(currentBoardState, position, selectedCardsInTurn) {
+    const card = currentBoardState[position];
 
-    // If piece is in home and dice is 6, move to start
-    if (piece.position === 'home' && diceValue === 6) {
-      updatedPiece.position = 'board';
-      updatedPiece.boardPosition = this.HOME_POSITIONS[playerColor];
-      updatedPiece.homeIndex = -1;
-      playerBoard.piecesInHome--;
-      playerBoard.score += 1; // Points for getting piece out
+    if (!card) {
+      return { success: false, message: 'Invalid card position.' };
     }
-    // If piece is on board, move forward
-    else if (piece.position === 'board') {
-      const newPosition = (piece.boardPosition + diceValue) % this.BOARD_SIZE;
-      
-      // Check if piece reaches home stretch
-      const homeStretchStart = (this.HOME_POSITIONS[playerColor] + 51) % this.BOARD_SIZE;
-      
-      if (this.isEnteringHomeStretch(piece.boardPosition, newPosition, homeStretchStart)) {
-        const homeSteps = diceValue - (homeStretchStart - piece.boardPosition);
-        if (homeSteps <= 6) {
-          if (homeSteps === 6) {
-            updatedPiece.position = 'finished';
-            updatedPiece.boardPosition = -1;
-            playerBoard.piecesFinished++;
-            playerBoard.score += 10; // Points for finishing piece
-          } else {
-            updatedPiece.position = 'homeStretch';
-            updatedPiece.boardPosition = homeSteps;
-          }
-        } else {
-          return { success: false, message: 'Cannot overshoot home' };
-        }
-      } else {
-        updatedPiece.boardPosition = newPosition;
-        // Check for captures
-        this.checkForCaptures(newPosition, playerColor, board);
-      }
+    if (card.isFlipped || card.isMatched) {
+      return { success: false, message: 'Card already flipped or matched.' };
     }
-    // If piece is in home stretch
-    else if (piece.position === 'homeStretch') {
-      const newHomePosition = piece.boardPosition + diceValue;
-      if (newHomePosition === 6) {
-        updatedPiece.position = 'finished';
-        updatedPiece.boardPosition = -1;
-        playerBoard.piecesFinished++;
-        playerBoard.score += 10;
-      } else if (newHomePosition < 6) {
-        updatedPiece.boardPosition = newHomePosition;
-      } else {
-        return { success: false, message: 'Cannot overshoot finish line' };
-      }
-    }
-    // If piece is finished, cannot move
-    else if (piece.position === 'finished') {
-      return { success: false, message: 'Piece already finished' };
+    if (selectedCardsInTurn.length >= 2) {
+      return { success: false, message: 'Maximum 2 cards per turn.' };
     }
 
-    // Update the piece in the board
-    playerBoard.pieces[updatedPiece.id] = updatedPiece;
+    // Mark card as flipped
+    card.isFlipped = true;
+    selectedCardsInTurn.push({ position, symbol: card.symbol });
+
+    let action = 'OPEN_CARD';
+    
+    // If two cards are selected, check for match
+    if (selectedCardsInTurn.length === 2) {
+      const [card1, card2] = selectedCardsInTurn;
+      if (card1.symbol === card2.symbol) {
+        // Match found!
+        currentBoardState[card1.position].isMatched = true;
+        currentBoardState[card2.position].isMatched = true;
+        action = 'CARDS_MATCHED';
+      } else {
+        // No match
+        action = 'CARDS_NO_MATCH';
+      }
+    }
 
     return {
       success: true,
-      updatedPlayerBoard: playerBoard,
-      updatedPiece
+      updatedCard: card,
+      action: action,
+      selectedCardsInTurn
     };
-  }
-
-  isEnteringHomeStretch(currentPos, newPos, homeStretchStart) {
-    return currentPos < homeStretchStart && newPos >= homeStretchStart;
-  }
-
-  checkForCaptures(position, currentPlayerColor, board) {
-    // Check if any opponent pieces are on the same position
-    Object.keys(board).forEach(color => {
-      if (color !== currentPlayerColor) {
-        board[color].pieces.forEach((piece, index) => {
-          if (piece.boardPosition === position && piece.position === 'board' && !piece.isInSafeZone) {
-            // Capture the piece - send it back home
-            board[color].pieces[index] = {
-              ...piece,
-              position: 'home',
-              boardPosition: -1,
-              homeIndex: board[color].piecesInHome
-            };
-            board[color].piecesInHome++;
-            board[color].score = Math.max(0, board[color].score - 2); // Penalty for being captured
-          }
-        });
-      }
-    });
-  }
-
-  async finishGame(gameId, winnerUserId) {
-    return prisma.game.update({
-      where: { id: gameId },
-      data: {
-        status: 'FINISHED',
-        winner: winnerUserId,
-        finishedAt: new Date()
-      }
-    });
   }
 
   async processGameWinnings(gameId) {
     try {
       const game = await this.getGameById(gameId);
-      if (!game || game.status !== 'FINISHED') {
+      if (!game || game.status !== 'FINISHED' || !game.winner) {
         return;
       }
 
-      // Calculate winnings (90% of prize pool to winner, 10% platform fee)
       const winnerAmount = game.prizePool * 0.9;
-      
-      // Credit winner's wallet
       await walletService.creditWallet(game.winner, winnerAmount, 'GAME_WINNING', gameId);
       
-      logger.info(`Game ${gameId} winnings processed: ${winnerAmount} to user ${game.winner}`);
+      logger.info(`Game ${gameId} winnings processed: ₹${winnerAmount.toFixed(2)} credited to user ${game.winner}`);
     } catch (error) {
-      logger.error('Error processing game winnings:', error);
+      logger.error(`Error processing game winnings for game ${gameId}:`, error);
     }
   }
 
-  async updatePlayerScore(gameId, userId, score, rank = null) {
-    return prisma.gameParticipation.update({
-      where: {
-        userId_gameId: {
-          userId,
-          gameId
+  /**
+   * Update player score in game participation record
+   */
+  async updatePlayerScore(gameId, playerId, newScore) {
+    try {
+      await prisma.gameParticipation.updateMany({
+        where: {
+          gameId: gameId,
+          userId: playerId
+        },
+        data: {
+          score: newScore
         }
-      },
-      data: {
-        score,
-        rank
-      }
-    });
+      });
+      logger.info(`Updated score for player ${playerId} in game ${gameId}: ${newScore}`);
+    } catch (error) {
+      logger.error(`Error updating player score for game ${gameId}, player ${playerId}:`, error);
+      throw error;
+    }
   }
 
-  async getGameHistory(userId, page = 1, limit = 20) {
-    const participations = await prisma.gameParticipation.findMany({
-      where: { userId },
-      include: {
-        game: {
-          include: {
-            participants: {
-              include: { user: { select: { id: true, name: true, phoneNumber: true } } }
+  /**
+   * Apply Ludo piece movement logic
+   */
+  applyLudoMove(piece, diceValue, playerColor, board) {
+    try {
+      // Validate inputs
+      if (!piece || !diceValue || !playerColor || !board) {
+        return { success: false, message: 'Invalid move parameters' };
+      }
+
+      if (diceValue < 1 || diceValue > 6) {
+        return { success: false, message: 'Invalid dice value' };
+      }
+
+      // If piece is at home, can only move out with 6
+      if (piece.position === 'home') {
+        if (diceValue === 6) {
+          // Move piece to starting position
+          const startPosition = this.HOME_POSITIONS[playerColor];
+          piece.position = 'board';
+          piece.boardPosition = startPosition;
+          piece.homeIndex = -1;
+          
+          // Update board state
+          if (board[playerColor]) {
+            board[playerColor].piecesInHome--;
+          }
+          
+          return { 
+            success: true, 
+            message: 'Piece moved out of home',
+            newPosition: startPosition,
+            action: 'MOVE_OUT_HOME'
+          };
+        } else {
+          return { success: false, message: 'Need 6 to move out of home' };
+        }
+      }
+
+      // If piece is on board, calculate new position
+      if (piece.position === 'board') {
+        const currentPos = piece.boardPosition;
+        let newPos = (currentPos + diceValue) % this.BOARD_SIZE;
+        
+        // Check if piece reaches home column (simplified logic)
+        const homeStretch = this.HOME_POSITIONS[playerColor] + 51;
+        if (newPos >= homeStretch) {
+          // Piece is finishing
+          piece.position = 'finished';
+          piece.boardPosition = -1;
+          
+          if (board[playerColor]) {
+            board[playerColor].piecesFinished++;
+          }
+          
+          return { 
+            success: true, 
+            message: 'Piece finished!',
+            newPosition: -1,
+            action: 'FINISH_PIECE'
+          };
+        }
+
+        // Normal move
+        piece.boardPosition = newPos;
+        
+        // Check for captures (simplified - would need more complex logic)
+        let capturedPiece = null;
+        for (const color in board) {
+          if (color !== playerColor) {
+            for (const otherPiece of board[color].pieces) {
+              if (otherPiece.position === 'board' && otherPiece.boardPosition === newPos) {
+                // Capture logic - send opponent piece home
+                if (!this.SAFE_ZONES.includes(newPos)) {
+                  otherPiece.position = 'home';
+                  otherPiece.boardPosition = -1;
+                  otherPiece.homeIndex = board[color].piecesInHome;
+                  board[color].piecesInHome++;
+                  capturedPiece = { color, pieceId: otherPiece.id };
+                }
+              }
             }
           }
         }
-      },
-      orderBy: { createdAt: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit
-    });
-    
-    const total = await prisma.gameParticipation.count({ where: { userId } });
-    
-    return {
-      games: participations,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
+        
+        return { 
+          success: true, 
+          message: capturedPiece ? 'Piece moved and captured opponent' : 'Piece moved',
+          newPosition: newPos,
+          action: capturedPiece ? 'CAPTURE' : 'MOVE',
+          capturedPiece
+        };
       }
-    };
-  }
 
-  async getGameStats(userId) {
-    const stats = await prisma.gameParticipation.aggregate({
-      where: { userId },
-      _count: { id: true },
-      _sum: { score: true }
-    });
-
-    const wins = await prisma.game.count({
-      where: { winner: userId }
-    });
-
-    return {
-      totalGames: stats._count.id || 0,
-      totalWins: wins,
-      totalScore: stats._sum.score || 0,
-      winRate: stats._count.id > 0 ? (wins / stats._count.id * 100).toFixed(2) : 0
-    };
+      return { success: false, message: 'Invalid piece position' };
+    } catch (error) {
+      logger.error('Error in applyLudoMove:', error);
+      return { success: false, message: 'Move calculation failed' };
+    }
   }
 }
 

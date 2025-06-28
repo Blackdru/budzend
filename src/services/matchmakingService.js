@@ -1,18 +1,52 @@
 const prisma = require('../config/database');
 const logger = require('../config/logger');
 const walletService = require('./walletService');
+const gameService = require('./gameService'); // For initializing game board based on game type
 
 class MatchmakingService {
   constructor() {
     this.matchmakingInterval = null;
-    this.startMatchmaking();
+    this.onGameCreatedCallback = null; // Callback to notify server.js
+    this.initialized = false;
+  }
+
+  async initialize() {
+    if (this.initialized) {
+      logger.info('MatchmakingService already initialized');
+      return;
+    }
+    
+    try {
+      this.startMatchmaking();
+      this.initialized = true;
+      logger.info('MatchmakingService initialized successfully');
+    } catch (error) {
+      logger.error('Failed to initialize MatchmakingService:', error);
+      throw error;
+    }
   }
 
   startMatchmaking() {
-    // Run matchmaking every 3 seconds for faster matching
+    // Run matchmaking every 5 seconds for faster matching
+    if (this.matchmakingInterval) {
+      clearInterval(this.matchmakingInterval);
+    }
     this.matchmakingInterval = setInterval(() => {
       this.processMatchmaking();
     }, 5000);
+    logger.info('Matchmaking interval started, running every 5 seconds.');
+  }
+
+  stop() {
+    if (this.matchmakingInterval) {
+      clearInterval(this.matchmakingInterval);
+      this.matchmakingInterval = null;
+      logger.info('Matchmaking interval stopped.');
+    }
+  }
+
+  setGameCreatedCallback(callback) {
+    this.onGameCreatedCallback = callback;
   }
 
   async joinQueue(userId, gameType, maxPlayers, entryFee) {
@@ -24,6 +58,7 @@ class MatchmakingService {
         const balance = await walletService.getWalletBalance(userId);
         logger.info(`💰 User ${userId} balance: ₹${balance}, required: ₹${entryFee}`);
         if (balance < entryFee) {
+          logger.warn(`❌ Insufficient balance for user ${userId} to join queue. Has: ${balance}, Needs: ${entryFee}`);
           throw new Error('Insufficient balance');
         }
       } else {
@@ -36,7 +71,7 @@ class MatchmakingService {
       });
 
       if (existingQueue) {
-        logger.info(`⚠️ User ${userId} already in queue - removing old entry`);
+        logger.info(`⚠️ User ${userId} already in queue (ID: ${existingQueue.id}) - removing old entry before adding new.`);
         await prisma.matchmakingQueue.delete({
           where: { id: existingQueue.id }
         });
@@ -52,7 +87,7 @@ class MatchmakingService {
         }
       });
 
-      logger.info(`✅ User ${userId} successfully joined matchmaking queue (ID: ${queueEntry.id})`);
+      logger.info(`✅ User ${userId} successfully joined matchmaking queue (ID: ${queueEntry.id}) for ${gameType} ${maxPlayers}P game.`);
 
       return {
         success: true,
@@ -60,74 +95,93 @@ class MatchmakingService {
         queueId: queueEntry.id
       };
     } catch (error) {
-      logger.error('Join queue error:', error);
-      throw error;
+      logger.error(`Join queue error for user ${userId}:`, error);
+      throw error; // Re-throw for API/socket handler to catch
     }
   }
 
   async leaveQueue(userId) {
     try {
-      await prisma.matchmakingQueue.deleteMany({
+      const deletedCount = await prisma.matchmakingQueue.deleteMany({
         where: { userId }
       });
+      if (deletedCount.count > 0) {
+        logger.info(`✅ User ${userId} successfully left matchmaking queue. Removed ${deletedCount.count} entries.`);
+      } else {
+        logger.info(`User ${userId} was not in any matchmaking queue.`);
+      }
 
       return {
         success: true,
         message: 'Left matchmaking queue'
       };
     } catch (error) {
-      logger.error('Leave queue error:', error);
+      logger.error(`Leave queue error for user ${userId}:`, error);
       throw error;
     }
   }
 
   async processMatchmaking() {
     try {
-      logger.info('🔍 Processing matchmaking...');
+      logger.info('🔍 Processing matchmaking cycle...');
       
-      // First, let's see what's in the queue
-      const allQueueEntries = await prisma.matchmakingQueue.findMany({
-        include: { user: true }
-      });
-      
-      logger.info(`📊 Total queue entries: ${allQueueEntries.length}`);
-      allQueueEntries.forEach(entry => {
-        logger.info(`   - User ${entry.userId} (${entry.user.name}) - ${entry.gameType} - ${entry.maxPlayers}P - ₹${entry.entryFee}`);
-      });
-
-      if (allQueueEntries.length < 2) {
-        logger.info('❌ Not enough players in queue (need at least 2)');
-        return;
-      }
-
-      // Group queue entries by game type and entry fee (ignore maxPlayers for now)
-      const queueGroups = await prisma.matchmakingQueue.groupBy({
-        by: ['gameType', 'entryFee'],
+      // Group queue entries by game type, maxPlayers, and entry fee
+      // We need to find groups that have enough players for a game
+      const matchableGroups = await prisma.matchmakingQueue.groupBy({
+        by: ['gameType', 'maxPlayers', 'entryFee'],
         _count: {
           id: true
         },
         having: {
           id: {
             _count: {
-              gte: 2 // At least 2 players needed
+              gte: 2 // Minimum 2 players needed for any game
             }
+          }
+        },
+        orderBy: {
+          _count: {
+            id: 'desc' // Prioritize groups with more players
           }
         }
       });
 
-      logger.info(`🎯 Found ${queueGroups.length} matchable groups`);
+      logger.info(`📊 Found ${matchableGroups.length} potential matchable groups.`);
 
-      for (const group of queueGroups) {
-        const { gameType, entryFee } = group;
+      let gamesCreated = 0;
+      for (const group of matchableGroups) {
+        const { gameType, maxPlayers, entryFee } = group;
         const availableCount = group._count.id;
 
-        logger.info(`🎮 Processing group: ${gameType} - ₹${entryFee} - ${availableCount} players`);
+        logger.info(`🎮 Evaluating group: GameType: ${gameType}, MaxPlayers: ${maxPlayers}P, EntryFee: ₹${entryFee}, Available: ${availableCount}`);
         
-        if (availableCount >= 2) {
-          // Start game with 2 players (can expand later)
-          logger.info(`✅ Creating game with 2 players for ${gameType}`);
-          await this.createGame(gameType, 2, entryFee);
+        // Create multiple games if we have enough players
+        const possibleGames = Math.floor(availableCount / maxPlayers);
+        
+        if (possibleGames > 0) {
+          logger.info(`✅ Can create ${possibleGames} games with ${maxPlayers} players each from ${availableCount} available players`);
+          
+          for (let i = 0; i < possibleGames; i++) {
+            try {
+              await this.createGame(gameType, maxPlayers, entryFee);
+              gamesCreated++;
+              logger.info(`🎉 Created game ${i + 1}/${possibleGames} for ${gameType} ${maxPlayers}P ₹${entryFee}`);
+            } catch (error) {
+              logger.error(`Failed to create game ${i + 1}/${possibleGames}:`, error);
+              break; // Stop creating more games if one fails
+            }
+          }
+        } else {
+          logger.info(`⚠️ Not enough players for a full ${maxPlayers}-player ${gameType} game. Available: ${availableCount}. Skipping for now.`);
         }
+      }
+      
+      if (gamesCreated > 0) {
+        logger.info(`🎉 Matchmaking cycle completed. Created ${gamesCreated} new games.`);
+        // Schedule next cycle immediately if games were created
+        setTimeout(() => this.processMatchmaking(), 1000);
+      } else {
+        logger.info('🔍 Matchmaking cycle completed. No new games created in this cycle.');
       }
     } catch (error) {
       logger.error('Process matchmaking error:', error);
@@ -136,15 +190,16 @@ class MatchmakingService {
 
   async createGame(gameType, playersToMatch, entryFee) {
     try {
-      logger.info(`🎮 Creating game: ${gameType} - ${playersToMatch} players - ₹${entryFee}`);
+      logger.info(`Attempting to create game: Type: ${gameType}, Players: ${playersToMatch}, EntryFee: ₹${entryFee}`);
       
-      // Get players from queue
+      // Get exact number of players from queue (oldest entries first)
       const queueEntries = await prisma.matchmakingQueue.findMany({
         where: {
           gameType,
+          maxPlayers: playersToMatch, // Important: Match on maxPlayers
           entryFee
         },
-        take: playersToMatch,
+        take: playersToMatch, // Take exactly the number of players needed
         include: {
           user: true
         },
@@ -153,22 +208,28 @@ class MatchmakingService {
         }
       });
 
-      logger.info(`📋 Found ${queueEntries.length} queue entries for matching`);
-      queueEntries.forEach(entry => {
-        logger.info(`   - ${entry.user.name} (${entry.userId})`);
-      });
-
       if (queueEntries.length < playersToMatch) {
-        logger.info(`❌ Not enough players: need ${playersToMatch}, found ${queueEntries.length}`);
-        return; // Not enough players
+        logger.warn(`❌ Failed to create game: Not enough players found after re-query. Needed: ${playersToMatch}, Found: ${queueEntries.length}. This might be a race condition, retrying next cycle.`);
+        return null; // Not enough players (might have been removed by another process)
       }
 
       // Calculate prize pool (90% of total entry fees, 10% platform fee)
       const totalEntryFees = entryFee * playersToMatch;
       const prizePool = totalEntryFees * 0.9;
+      logger.info(`Calculated prize pool: ₹${prizePool.toFixed(2)} from total entry fees ₹${totalEntryFees.toFixed(2)}.`);
 
       // Create game and process payments in transaction
       const result = await prisma.$transaction(async (tx) => {
+        // Initialize gameData based on gameType
+        let initialGameData = {};
+        if (gameType === 'CLASSIC_LUDO') {
+          initialGameData = gameService.initializeLudoGameBoard(playersToMatch);
+        } else if (gameType === 'FAST_LUDO') {
+          initialGameData = gameService.initializeLudoGameBoard(playersToMatch);
+        } else if (gameType === 'MEMORY') {
+          initialGameData = gameService.initializeMemoryGameBoard();
+        }
+
         // Create game
         const game = await tx.game.create({
           data: {
@@ -176,52 +237,76 @@ class MatchmakingService {
             maxPlayers: playersToMatch,
             entryFee,
             prizePool,
-            status: 'WAITING'
+            status: 'WAITING', // Game is created but waiting for players to join socket room
+            gameData: initialGameData, // Store initial game board state
+            // currentTurn will be set when the game actually starts
           }
         });
+        logger.info(`Game ${game.id} created in database with initial status 'WAITING'.`);
 
         // Process entry fees and create participations
         const participations = [];
-        const colors = ['red', 'blue', 'green', 'yellow'];
+        const colors = ['red', 'blue', 'green', 'yellow']; // Standard Ludo colors
 
         for (let i = 0; i < queueEntries.length; i++) {
           const queueEntry = queueEntries[i];
-          
-          // Deduct entry fee only if not free game (memory game)
+          const playerColor = colors[i % colors.length]; // Assign colors cyclically
+
+          // Deduct entry fee only if not free game
           if (entryFee > 0) {
             await walletService.deductGameEntry(queueEntry.userId, entryFee, game.id);
+            logger.info(`Deducted ₹${entryFee} from user ${queueEntry.userId} for game entry.`);
           }
 
-          // Create participation
+          // Create participation record
           const participation = await tx.gameParticipation.create({
             data: {
               userId: queueEntry.userId,
               gameId: game.id,
-              position: i,
-              color: colors[i]
+              position: i, // Store turn order
+              color: playerColor, // Assign color to participant
+              score: 0 // Initialize score to 0
             }
           });
-
           participations.push(participation);
+          logger.info(`User ${queueEntry.userId} added as participant for game ${game.id} with color ${playerColor}.`);
 
-          // Remove from queue
-          await tx.matchmakingQueue.delete({
+          // Remove from queue (use deleteMany to avoid errors if already deleted)
+          const deletedQueue = await tx.matchmakingQueue.deleteMany({
             where: { id: queueEntry.id }
           });
+          if (deletedQueue.count > 0) {
+            logger.info(`Queue entry ${queueEntry.id} removed for user ${queueEntry.userId}.`);
+          } else {
+            logger.warn(`Queue entry ${queueEntry.id} was already removed for user ${queueEntry.userId}.`);
+          }
         }
 
-        return { game, participations, players: queueEntries.map(q => q.user) };
+        // Fetch the game again with its participants to ensure the `participants` relation is loaded
+        const gameWithParticipants = await tx.game.findUnique({
+            where: { id: game.id },
+            include: { participants: true } // Include the participants
+        });
+
+
+        return { game: gameWithParticipants, participations, players: queueEntries.map(q => q.user) };
       });
 
-      logger.info(`Game created: ${result.game.id} with ${playersToMatch} players`);
+      logger.info(`🎉 Game ${result.game.id} successfully created and players matched. Notifying via callback.`);
 
-      // Emit game created event (will be handled by socket service)
-      this.onGameCreated && this.onGameCreated(result.game, result.players);
+      // Notify server.js about the created game and matched players
+      // The callback is responsible for emitting socket events to clients
+      if (this.onGameCreatedCallback) {
+        this.onGameCreatedCallback(result.game, result.players);
+      } else {
+        logger.warn('No onGameCreatedCallback registered with MatchmakingService.');
+      }
 
       return result.game;
     } catch (error) {
       logger.error('Create game error:', error);
-      throw error;
+      // Re-throw the error so the caller can decide how to handle it
+      throw error; 
     }
   }
 
@@ -256,18 +341,8 @@ class MatchmakingService {
         waitTime: Date.now() - queueEntry.createdAt.getTime()
       };
     } catch (error) {
-      logger.error('Get queue status error:', error);
+      logger.error(`Get queue status error for user ${userId}:`, error);
       throw new Error('Failed to get queue status');
-    }
-  }
-
-  setGameCreatedCallback(callback) {
-    this.onGameCreated = callback;
-  }
-
-  stop() {
-    if (this.matchmakingInterval) {
-      clearInterval(this.matchmakingInterval);
     }
   }
 }

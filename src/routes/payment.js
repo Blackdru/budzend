@@ -6,53 +6,188 @@ const { authenticateToken } = require('../middleware/auth');
 const walletService = require('../services/walletService');
 const logger = require('../config/logger');
 
-// Initialize Razorpay
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
+// Initialize Razorpay with error handling
+let razorpay;
+try {
+  if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+    razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+    console.log('✅ Razorpay initialized successfully');
+  } else {
+    console.warn('⚠️ Razorpay credentials not found, running in test mode');
+  }
+} catch (error) {
+  console.error('❌ Razorpay initialization failed:', error);
+}
+
+// Middleware to log all requests
+router.use((req, res, next) => {
+  console.log(`=== PAYMENT ROUTE: ${req.method} ${req.path} ===`);
+  console.log('Headers:', req.headers);
+  console.log('Body:', req.body);
+  console.log('Query:', req.query);
+  console.log('==========================================');
+  next();
+});
+
+// Test deposit route for debugging
+router.post('/test-deposit', authenticateToken, async (req, res) => {
+  try {
+    console.log('=== TEST DEPOSIT DEBUG ===');
+    console.log('Raw body:', req.body);
+    console.log('Body type:', typeof req.body);
+    console.log('Body keys:', Object.keys(req.body || {}));
+    console.log('Content-Type:', req.headers['content-type']);
+    console.log('User:', req.user);
+    console.log('========================');
+    
+    const { amount } = req.body;
+    
+    if (!amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Amount is required',
+        receivedBody: req.body,
+        bodyType: typeof req.body,
+        bodyKeys: Object.keys(req.body || {})
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Test deposit successful',
+      amount: amount,
+      receivedBody: req.body
+    });
+  } catch (error) {
+    console.error('Test deposit error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+      stack: error.stack
+    });
+  }
 });
 
 // Create order for deposit
 router.post('/create-deposit-order', authenticateToken, async (req, res) => {
   try {
+    console.log('=== CREATE DEPOSIT ORDER DEBUG ===');
+    console.log('Raw body:', req.body);
+    console.log('Body type:', typeof req.body);
+    console.log('Body keys:', Object.keys(req.body || {}));
+    console.log('Content-Type:', req.headers['content-type']);
+    console.log('User:', req.user);
+    console.log('=================================');
+    
     const { amount } = req.body;
     const userId = req.user.id;
 
-    if (!amount || amount < 10) {
+    // Better validation
+    if (!req.body) {
       return res.status(400).json({
         success: false,
-        message: 'Minimum deposit amount is ₹10'
+        message: 'Request body is missing',
+        debug: {
+          bodyReceived: req.body,
+          contentType: req.headers['content-type']
+        }
       });
     }
 
-    if (amount > 50000) {
+    if (!amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Amount is required',
+        receivedBody: req.body,
+        debug: {
+          bodyType: typeof req.body,
+          bodyKeys: Object.keys(req.body || {}),
+          contentType: req.headers['content-type']
+        }
+      });
+    }
+
+    const numericAmount = parseFloat(amount);
+    if (isNaN(numericAmount) || numericAmount < 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid amount is required. Minimum deposit amount is ₹10',
+        receivedAmount: amount,
+        parsedAmount: numericAmount
+      });
+    }
+
+    if (numericAmount > 50000) {
       return res.status(400).json({
         success: false,
         message: 'Maximum deposit amount is ₹50,000'
       });
     }
 
-    // Create Razorpay order
-    const order = await razorpay.orders.create({
-      amount: amount * 100, // amount in paise
-      currency: 'INR',
-      receipt: `deposit_${userId}_${Date.now()}`,
-      notes: {
-        userId,
-        type: 'DEPOSIT'
+    // Create Razorpay order with error handling
+    console.log('🔄 Creating Razorpay order for amount:', numericAmount);
+    let order;
+    
+    if (razorpay) {
+      try {
+        order = await razorpay.orders.create({
+          amount: numericAmount * 100, // amount in paise
+          currency: 'INR',
+          receipt: `deposit_${userId}_${Date.now()}`,
+          notes: {
+            userId,
+            type: 'DEPOSIT'
+          }
+        });
+        console.log('✅ Razorpay order created successfully:', order.id);
+      } catch (razorpayError) {
+        console.error('❌ Razorpay order creation failed:', razorpayError);
+        return res.status(500).json({
+          success: false,
+          message: 'Payment gateway error. Please try again.',
+          error: razorpayError.message,
+          details: 'Razorpay order creation failed'
+        });
       }
-    });
+    } else {
+      // Test mode - create mock order
+      console.log('🧪 Creating mock order (test mode)');
+      order = {
+        id: `order_test_${Date.now()}`,
+        amount: numericAmount * 100,
+        currency: 'INR',
+        receipt: `deposit_${userId}_${Date.now()}`,
+        status: 'created'
+      };
+    }
 
     // Create transaction record
-    const transaction = await walletService.createTransaction(
-      userId,
-      'DEPOSIT',
-      amount,
-      'PENDING',
-      `Wallet deposit of ₹${amount}`,
-      order.id
-    );
+    console.log('🔄 Creating transaction record...');
+    let transaction;
+    try {
+      transaction = await walletService.createTransaction(
+        userId,
+        'DEPOSIT',
+        numericAmount,
+        'PENDING',
+        `Wallet deposit of ₹${numericAmount}`,
+        order.id
+      );
+      console.log('✅ Transaction created successfully:', transaction.id);
+    } catch (transactionError) {
+      console.error('❌ Transaction creation failed:', transactionError);
+      return res.status(500).json({
+        success: false,
+        message: 'Database error. Please try again.',
+        error: transactionError.message,
+        details: 'Transaction creation failed'
+      });
+    }
 
+    console.log('🎉 Deposit order creation completed successfully');
     res.json({
       success: true,
       order,
@@ -60,17 +195,13 @@ router.post('/create-deposit-order', authenticateToken, async (req, res) => {
     });
 
   } catch (error) {
+    console.error('💥 Unexpected error in create-deposit-order:', error);
     logger.error('Create deposit order error:', error);
-    if (error && error.error && error.error.description) {
-      // Razorpay error
-      return res.status(500).json({
-        success: false,
-        message: error.error.description
-      });
-    }
     res.status(500).json({
       success: false,
-      message: error.message || 'Failed to create deposit order'
+      message: 'An unexpected error occurred',
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
@@ -226,11 +357,11 @@ router.get('/history', authenticateToken, async (req, res) => {
 router.get('/balance', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const wallet = await walletService.getWallet(userId);
+    const balance = await walletService.getWalletBalance(userId);
 
     res.json({
       success: true,
-      balance: wallet ? wallet.balance : 0
+      balance: balance
     });
 
   } catch (error) {

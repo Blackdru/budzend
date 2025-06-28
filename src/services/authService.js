@@ -10,7 +10,7 @@ class AuthService {
 
   generateOTP() {
     // For development, use a fixed OTP for testing
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
       return '123456'; // Fixed OTP for development
     }
     return Math.floor(100000 + Math.random() * 900000).toString();
@@ -20,6 +20,7 @@ class AuthService {
     try {
       // Validate phone number format
       if (!phoneNumber || !phoneNumber.match(/^\+91[6-9]\d{9}$/)) {
+        logger.warn(`Invalid phone number format for sendOTP: ${phoneNumber}`);
         throw new Error('Invalid phone number format');
       }
 
@@ -30,6 +31,7 @@ class AuthService {
           expiresAt: { lt: new Date() }
         }
       });
+      logger.debug(`Cleaned up expired OTPs for ${phoneNumber}`);
 
       // Generate new OTP
       const otp = this.generateOTP();
@@ -50,19 +52,33 @@ class AuthService {
       const apiKey = process.env.RENFLAIR_API_KEY;
       
       if (!apiKey) {
-        logger.error('RENFLAIR_API_KEY not configured');
-        throw new Error('SMS service not configured');
+        logger.error('RENFLAIR_API_KEY not configured. SMS sending skipped.');
+        // Don't throw error here - OTP is saved in DB, user can still verify
+        return { 
+          success: true, 
+          message: 'OTP generated successfully. SMS service is not configured.',
+          warning: 'SMS service is currently unavailable or misconfigured'
+        };
       }
 
-      const resp = await sendOtpViaRenflair(apiKey, phoneNumber, otp);
+      let resp;
+      try {
+        resp = await sendOtpViaRenflair(apiKey, phoneNumber, otp);
+      } catch (smsError) {
+        logger.error(`Error calling Renflair SMS API for ${phoneNumber}:`, smsError);
+        return { 
+          success: true, 
+          message: 'OTP generated successfully. Failed to send SMS.',
+          warning: 'SMS service encountered an error'
+        };
+      }
       
       if (resp && resp.success) {
         logger.info(`OTP sent successfully to ${phoneNumber}`);
         return { success: true, message: 'OTP sent successfully' };
       } else {
-        logger.error(`Failed to send OTP to ${phoneNumber}:`, resp);
+        logger.error(`Failed to send OTP to ${phoneNumber} (Renflair response):`, resp);
         // Don't throw error here - OTP is saved in DB, user can still verify
-        // This allows for manual testing or if SMS service is temporarily down
         return { 
           success: true, 
           message: 'OTP generated successfully. If you don\'t receive SMS, please try again.',
@@ -79,27 +95,31 @@ class AuthService {
     try {
       // Validate inputs
       if (!phoneNumber || !otp) {
+        logger.warn('Phone number or OTP missing for verification');
         throw new Error('Phone number and OTP are required');
       }
 
       if (!phoneNumber.match(/^\+91[6-9]\d{9}$/)) {
+        logger.warn(`Invalid phone number format for verifyOTP: ${phoneNumber}`);
         throw new Error('Invalid phone number format');
       }
 
       if (!otp.match(/^\d{6}$/)) {
+        logger.warn(`Invalid OTP format for ${phoneNumber}: ${otp}`);
         throw new Error('OTP must be 6 digits');
       }
 
-      logger.info(`Verifying OTP for ${phoneNumber}: ${otp}`);
+      logger.info(`Verifying OTP for ${phoneNumber}`); // Removed OTP from log for security
 
-      // Find valid OTP
+      // Find the most recent valid OTP
       const otpRecord = await prisma.oTPVerification.findFirst({
         where: {
           phoneNumber,
           otp,
           verified: false,
           expiresAt: { gt: new Date() }
-        }
+        },
+        orderBy: { createdAt: 'desc' } // Crucial: ensure we get the latest unverified OTP
       });
 
       if (!otpRecord) {
@@ -111,12 +131,14 @@ class AuthService {
 
         if (anyOtpRecord) {
           if (anyOtpRecord.verified) {
+            logger.warn(`Attempt to use already verified OTP for ${phoneNumber}`);
             throw new Error('OTP already used');
           } else if (anyOtpRecord.expiresAt < new Date()) {
+            logger.warn(`Attempt to use expired OTP for ${phoneNumber}`);
             throw new Error('OTP expired. Please request a new one');
           }
         }
-        
+        logger.warn(`Invalid OTP provided for ${phoneNumber}`);
         throw new Error('Invalid OTP');
       }
 
@@ -127,6 +149,7 @@ class AuthService {
         where: { id: otpRecord.id },
         data: { verified: true }
       });
+      logger.debug(`OTP record ${otpRecord.id} marked as verified.`);
 
       // Find or create user
       let user = await prisma.user.findUnique({
@@ -141,6 +164,8 @@ class AuthService {
           data: {
             phoneNumber,
             isVerified: true,
+            // Default name/email can be set here or updated later
+            name: `User_${phoneNumber.substring(phoneNumber.length - 4)}`, // Example default name
             wallet: {
               create: {
                 balance: 0
@@ -152,17 +177,19 @@ class AuthService {
         logger.info(`New user created: ${user.id}`);
       } else {
         logger.info(`Updating existing user: ${user.id}`);
-        // Update verification status
-        user = await prisma.user.update({
-          where: { id: user.id },
-          data: { isVerified: true },
-          include: { wallet: true }
-        });
+        // Update verification status if not already verified
+        if (!user.isVerified) {
+          user = await prisma.user.update({
+            where: { id: user.id },
+            data: { isVerified: true },
+            include: { wallet: true }
+          });
+        }
       }
 
       // Validate JWT configuration
       if (!process.env.JWT_SECRET) {
-        logger.error('JWT_SECRET not configured');
+        logger.error('JWT_SECRET not configured. Authentication service cannot generate tokens.');
         throw new Error('Authentication service not configured');
       }
 
@@ -173,7 +200,7 @@ class AuthService {
         { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
       );
 
-      logger.info(`Authentication successful for user: ${user.id}`);
+      logger.info(`Authentication successful and token generated for user: ${user.id}`);
 
       return {
         success: true,
@@ -190,18 +217,19 @@ class AuthService {
       };
     } catch (error) {
       logger.error('Verify OTP error:', error);
-      throw error;
+      throw error; // Re-throw for higher-level error handling
     }
   }
 
   async updateProfile(userId, profileData) {
     try {
+      logger.info(`Updating profile for user ${userId}`);
       const user = await prisma.user.update({
         where: { id: userId },
         data: profileData,
         include: { wallet: true }
       });
-
+      logger.info(`Profile updated for user ${userId}`);
       return {
         success: true,
         user: {
@@ -214,7 +242,7 @@ class AuthService {
         }
       };
     } catch (error) {
-      logger.error('Update profile error:', error);
+      logger.error(`Update profile error for user ${userId}:`, error);
       throw new Error('Failed to update profile');
     }
   }

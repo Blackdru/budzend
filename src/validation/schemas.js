@@ -33,14 +33,26 @@ const authSchemas = {
 
 const gameSchemas = {
   joinMatchmaking: Joi.object({
-    gameType: Joi.string().valid('LUDO').default('LUDO'),
-    maxPlayers: Joi.number().valid(2, 4).required(),
-    entryFee: Joi.number().positive().required()
+    gameType: Joi.string().valid('CLASSIC_LUDO', 'FAST_LUDO', 'MEMORY').required(),
+    maxPlayers: Joi.number().integer().min(2).max(4).required(),
+    entryFee: Joi.number().min(0).max(10000).required() // entryFee can be 0 for free games, max 10k
+  }),
+
+  rollDice: Joi.object({
+    gameId: Joi.string().required()
   }),
 
   movePiece: Joi.object({
     gameId: Joi.string().required(),
-    pieceId: Joi.number().integer().min(0).max(3).required()
+    pieceId: Joi.number().integer().min(0).max(3).required(),
+    // Added explicit diceValue, although gameService should manage this
+    // It's good for validation, but the server should rely on its own state
+    diceValue: Joi.number().integer().min(1).max(6).optional()
+  }),
+
+  selectCard: Joi.object({ // Schema for Memory Game
+    gameId: Joi.string().required(),
+    position: Joi.number().integer().min(0).required()
   })
 };
 
@@ -50,7 +62,13 @@ const walletSchemas = {
   }),
 
   withdraw: Joi.object({
-    amount: Joi.number().positive().min(10).required()
+    amount: Joi.number().positive().min(10).required(),
+    bankDetails: Joi.object({
+      bankName: Joi.string().required(),
+      accountNumber: Joi.string().required(),
+      ifscCode: Joi.string().required(),
+      accountHolderName: Joi.string().required()
+    }).required()
   })
 };
 
