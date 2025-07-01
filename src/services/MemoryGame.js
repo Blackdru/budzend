@@ -7,7 +7,7 @@ class MemoryGameService {
   constructor(io) {
     this.io = io;
     this.games = new Map();
-    this.TURN_TIMER = 15000; // 15 seconds per turn
+    this.TURN_TIMER = 15000; // 15 seconds total for 2 cards
     this.turnTimers = new Map();
     this.countdownIntervals = new Map();
   }
@@ -17,6 +17,8 @@ class MemoryGameService {
     socket.on('SELECT_MEMORY_CARD', (data) => this.selectCard(socket, data));
     socket.on('selectCard', (data) => this.selectCard(socket, data));
     socket.on('JOIN_MEMORY_ROOM', (data) => this.joinRoom(socket, data));
+    socket.on('LEAVE_MEMORY_GAME', (data) => this.handlePlayerLeave(socket, data));
+    socket.on('disconnect', () => this.handlePlayerDisconnect(socket));
   }
 
   async startGame({ roomId }) {
@@ -124,10 +126,24 @@ class MemoryGameService {
       });
     });
 
-    // Shuffle cards
-    for (let i = cards.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [cards[i], cards[j]] = [cards[j], cards[i]];
+    // Better randomization using Fisher-Yates shuffle with multiple passes
+    for (let pass = 0; pass < 3; pass++) {
+      for (let i = cards.length - 1; i > 0; i--) {
+        // Use crypto-quality randomness if available
+        const randomValue = typeof crypto !== 'undefined' && crypto.getRandomValues 
+          ? crypto.getRandomValues(new Uint32Array(1))[0] / (0xFFFFFFFF + 1)
+          : Math.random();
+        const j = Math.floor(randomValue * (i + 1));
+        [cards[i], cards[j]] = [cards[j], cards[i]];
+      }
+    }
+
+    // Additional entropy by shuffling based on timestamp
+    const timeBasedSeed = Date.now() % cards.length;
+    for (let i = 0; i < timeBasedSeed; i++) {
+      const randomIndex1 = Math.floor(Math.random() * cards.length);
+      const randomIndex2 = Math.floor(Math.random() * cards.length);
+      [cards[randomIndex1], cards[randomIndex2]] = [cards[randomIndex2], cards[randomIndex1]];
     }
 
     // Update positions after shuffle
@@ -201,8 +217,10 @@ class MemoryGameService {
         });
       }
 
-      // Clear turn timer
-      this.clearTurnTimer(gameId);
+      // Only clear timer if this is the first card selection
+      if (gameState.selectedCards.length === 0) {
+        this.clearTurnTimer(gameId);
+      }
 
       // Flip card
       card.isFlipped = true;
@@ -222,12 +240,13 @@ class MemoryGameService {
 
       // If 2 cards selected, check for match
       if (gameState.selectedCards.length === 2) {
+        // Clear timer now that turn is complete
+        this.clearTurnTimer(gameId);
         gameState.processingCards = true;
-        setTimeout(() => this.processMatch(gameId), 1000); // Reduced from 1500ms to 1000ms
-      } else {
-        // Start timer for second card
-        this.startTurnTimer(gameId);
+        // Process match immediately for better responsiveness
+        setTimeout(() => this.processMatch(gameId), 500);
       }
+      // Don't restart timer for second card - let the original timer continue
 
     } catch (error) {
       logger.error(`Memory Game: Select card error:`, error);
@@ -255,10 +274,12 @@ class MemoryGameService {
         gameState.scores[gameState.currentTurnPlayerId] += 10;
         currentPlayer.score += 10;
 
-        // Update player score in database
-        await gameService.updatePlayerScore(gameId, gameState.currentTurnPlayerId, currentPlayer.score);
+        // Update player score in database (non-blocking)
+        gameService.updatePlayerScore(gameId, gameState.currentTurnPlayerId, currentPlayer.score).catch(err => {
+          logger.error('Failed to update player score:', err);
+        });
 
-        // Emit match event
+        // Emit match event immediately
         this.io.to(`game:${gameId}`).emit('MEMORY_CARDS_MATCHED', {
           positions: [card1.position, card2.position],
           playerId: gameState.currentTurnPlayerId,
@@ -273,36 +294,31 @@ class MemoryGameService {
           return;
         }
 
-        // Player gets another turn
+        // Player gets another turn - reset immediately
         gameState.selectedCards = [];
         gameState.processingCards = false;
         this.startTurnTimer(gameId);
 
       } else {
-        // No match - emit mismatch event
-        this.io.to(`game:${gameId}`).emit('MEMORY_CARDS_NO_MATCH', {
-          positions: [card1.position, card2.position],
-          symbols: [card1.symbol, card2.symbol]
-        });
-
-        // Also emit the old event name for compatibility
+        // No match - flip back immediately and change turn
+        gameState.board[card1.position].isFlipped = false;
+        gameState.board[card2.position].isFlipped = false;
+        
+        // Emit mismatch event with immediate flip back
         this.io.to(`game:${gameId}`).emit('MEMORY_CARDS_MISMATCHED', {
           positions: [card1.position, card2.position],
-          symbols: [card1.symbol, card2.symbol]
+          symbols: [card1.symbol, card2.symbol],
+          nextPlayerName: gameState.players[(gameState.currentTurnIndex + 1) % gameState.players.length].name
         });
 
-        // Wait then flip back and change turn
-        setTimeout(() => {
-          gameState.board[card1.position].isFlipped = false;
-          gameState.board[card2.position].isFlipped = false;
-          
-          // Change turn
-          this.nextTurn(gameId);
-        }, 1000);
+        // Change turn immediately
+        this.nextTurn(gameId);
       }
 
-      // Update database
-      await gameService.updateGameState(gameId, gameState.board, gameState.currentTurnIndex, 'PLAYING', null);
+      // Update database (non-blocking)
+      gameService.updateGameState(gameId, gameState.board, gameState.currentTurnIndex, 'PLAYING', null).catch(err => {
+        logger.error('Failed to update game state:', err);
+      });
 
     } catch (error) {
       logger.error(`Memory Game: Process match error:`, error);
@@ -398,9 +414,20 @@ class MemoryGameService {
     const gameState = this.games.get(gameId);
     if (!gameState) return;
 
+    const currentPlayer = gameState.players.find(p => p.id === gameState.currentTurnPlayerId);
+    const nextPlayerIndex = (gameState.currentTurnIndex + 1) % gameState.players.length;
+    const nextPlayer = gameState.players[nextPlayerIndex];
+
     // Clear any selected cards
     gameState.selectedCards.forEach(selected => {
       gameState.board[selected.position].isFlipped = false;
+    });
+
+    // Emit turn skipped event
+    this.io.to(`game:${gameId}`).emit('MEMORY_TURN_SKIPPED', {
+      skippedPlayer: currentPlayer?.name || 'Unknown',
+      nextPlayerName: nextPlayer?.name || 'Unknown',
+      reason: 'timeout'
     });
 
     // Move to next turn
@@ -414,41 +441,57 @@ class MemoryGameService {
 
       this.clearTurnTimer(gameId);
 
-      // Find winner
+      // Find winner and create leaderboard
       let winnerId = null;
       let highestScore = -1;
       
-      for (const playerId in gameState.scores) {
-        if (gameState.scores[playerId] > highestScore) {
-          highestScore = gameState.scores[playerId];
-          winnerId = playerId;
-        }
+      // Create sorted leaderboard
+      const leaderboard = gameState.players.map(player => ({
+        id: player.id,
+        name: player.name,
+        score: gameState.scores[player.id] || 0
+      })).sort((a, b) => b.score - a.score);
+
+      // Determine winner
+      if (leaderboard.length > 0) {
+        winnerId = leaderboard[0].id;
+        highestScore = leaderboard[0].score;
       }
 
       const winner = gameState.players.find(p => p.id === winnerId);
 
+      // Get game info for prize pool
+      const game = await gameService.getGameById(gameId);
+      const prizePool = game?.prizePool || 0;
+
       // Update database
       await gameService.updateGameState(gameId, gameState.board, gameState.currentTurnIndex, 'FINISHED', winnerId);
 
-      // Get game info for prize pool
-      const game = await gameService.getGameById(gameId);
-      
-      // Emit game end
+      // Emit game end with complete information
       this.io.to(`game:${gameId}`).emit('MEMORY_GAME_ENDED', {
         winner: winner,
         winnerId: winnerId,
         finalScores: gameState.scores,
         players: gameState.players,
-        prizePool: game?.prizePool || 0
+        prizePool: prizePool,
+        leaderboard: leaderboard,
+        totalPlayers: gameState.players.length,
+        gameStats: {
+          totalPairs: gameState.totalPairs,
+          matchedPairs: gameState.matchedPairs,
+          winnerScore: highestScore
+        }
       });
 
-      // Process winnings
-      await gameService.processGameWinnings(gameId);
+      // Process winnings (non-blocking)
+      gameService.processGameWinnings(gameId).catch(err => {
+        logger.error('Failed to process game winnings:', err);
+      });
 
       // Clean up
       this.games.delete(gameId);
 
-      logger.info(`Memory Game: Game ${gameId} ended. Winner: ${winnerId}`);
+      logger.info(`Memory Game: Game ${gameId} ended. Winner: ${winnerId} with score: ${highestScore}`);
     } catch (error) {
       logger.error(`Memory Game: End game error:`, error);
     }
@@ -513,13 +556,138 @@ class MemoryGameService {
         matchedPairs: gameState.matchedPairs,
         totalPairs: gameState.totalPairs,
         status: gameState.status,
-        prizePool: gameFromDb?.prizePool || 0
+        prizePool: gameFromDb?.prizePool || 0,
+        selectedCards: gameState.selectedCards || [],
+        processingCards: gameState.processingCards || false
       });
+
+      // If player is reconnecting and it's their turn, restart timer
+      if (gameState.currentTurnPlayerId === playerId && gameState.status === 'playing') {
+        // Only restart timer if no cards are selected or processing
+        if (gameState.selectedCards.length === 0 && !gameState.processingCards) {
+          this.startTurnTimer(roomId);
+        }
+      }
 
       logger.info(`Memory Game: Player ${playerName} joined room ${roomId}`);
     } catch (error) {
       logger.error(`Memory Game: Join room error:`, error);
       socket.emit('MEMORY_GAME_ERROR', { message: 'Failed to join room.' });
+    }
+  }
+
+  async handlePlayerLeave(socket, { roomId, playerId }) {
+    try {
+      const gameState = this.games.get(roomId);
+      if (!gameState) return;
+
+      await this.handlePlayerExit(roomId, playerId, 'left');
+    } catch (error) {
+      logger.error(`Memory Game: Player leave error:`, error);
+    }
+  }
+
+  async handlePlayerDisconnect(socket) {
+    try {
+      // Find all games this socket is part of
+      const playerId = socket.user?.id;
+      if (!playerId) return;
+
+      for (const [roomId, gameState] of this.games.entries()) {
+        const player = gameState.players.find(p => p.id === playerId);
+        if (player) {
+          await this.handlePlayerExit(roomId, playerId, 'disconnected');
+        }
+      }
+    } catch (error) {
+      logger.error(`Memory Game: Player disconnect error:`, error);
+    }
+  }
+
+  async handlePlayerExit(roomId, playerId, reason) {
+    try {
+      const gameState = this.games.get(roomId);
+      if (!gameState || gameState.status !== 'playing') return;
+
+      const leavingPlayer = gameState.players.find(p => p.id === playerId);
+      if (!leavingPlayer) return;
+
+      // Clear timers
+      this.clearTurnTimer(roomId);
+
+      // If it's a 2-player game, automatically declare the other player as winner
+      if (gameState.players.length === 2) {
+        const remainingPlayer = gameState.players.find(p => p.id !== playerId);
+        
+        if (remainingPlayer) {
+          // Get game info for prize pool
+          const game = await gameService.getGameById(roomId);
+          const prizePool = game?.prizePool || 0;
+
+          // Update database with winner
+          await gameService.updateGameState(roomId, gameState.board, gameState.currentTurnIndex, 'FINISHED', remainingPlayer.id);
+
+          // Create leaderboard with remaining player as winner
+          const leaderboard = [
+            {
+              id: remainingPlayer.id,
+              name: remainingPlayer.name,
+              score: gameState.scores[remainingPlayer.id] || 0
+            },
+            {
+              id: playerId,
+              name: leavingPlayer.name,
+              score: gameState.scores[playerId] || 0
+            }
+          ];
+
+          // Emit game end with winner
+          this.io.to(`game:${roomId}`).emit('MEMORY_GAME_ENDED', {
+            winner: remainingPlayer,
+            winnerId: remainingPlayer.id,
+            finalScores: gameState.scores,
+            players: gameState.players,
+            prizePool: prizePool,
+            leaderboard: leaderboard,
+            totalPlayers: gameState.players.length,
+            gameStats: {
+              totalPairs: gameState.totalPairs,
+              matchedPairs: gameState.matchedPairs,
+              winnerScore: gameState.scores[remainingPlayer.id] || 0
+            },
+            reason: `${leavingPlayer.name} ${reason} the game`
+          });
+
+          // Process winnings
+          gameService.processGameWinnings(roomId).catch(err => {
+            logger.error('Failed to process game winnings:', err);
+          });
+
+          // Clean up
+          this.games.delete(roomId);
+
+          logger.info(`Memory Game: Game ${roomId} ended due to player ${reason}. Winner: ${remainingPlayer.id}`);
+        }
+      } else {
+        // For games with more than 2 players, just remove the player and continue
+        gameState.players = gameState.players.filter(p => p.id !== playerId);
+        delete gameState.scores[playerId];
+
+        // If it was the leaving player's turn, move to next player
+        if (gameState.currentTurnPlayerId === playerId) {
+          this.nextTurn(roomId);
+        }
+
+        // Notify remaining players
+        this.io.to(`game:${roomId}`).emit('MEMORY_PLAYER_LEFT', {
+          playerId: playerId,
+          playerName: leavingPlayer.name,
+          reason: reason,
+          remainingPlayers: gameState.players
+        });
+      }
+    } catch (error) {
+      logger.error(`Memory Game: Handle player exit error:`, error);
     }
   }
 }
