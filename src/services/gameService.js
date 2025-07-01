@@ -75,6 +75,51 @@ class GameService {
     return gameBoard;
   }
 
+  /**
+   * Initialize Snakes & Ladders Game Board
+   */
+  initializeSnakesLaddersGameBoard(maxPlayers) {
+    const PLAYER_COLORS = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A'];
+    const PLAYER_AVATARS = ['🐯', '🐶', '🐼', '🐵'];
+    const SNAKES = {
+      99: 21, 95: 75, 87: 24, 62: 19, 
+      54: 34, 49: 11, 46: 25, 17: 7
+    };
+    const LADDERS = {
+      4: 14, 9: 31, 20: 38, 28: 84, 
+      40: 59, 51: 67, 63: 81, 71: 91
+    };
+
+    const gameBoard = {
+      boardSize: 100,
+      snakes: SNAKES,
+      ladders: LADDERS,
+      players: [],
+      currentTurnIndex: 0,
+      gameStarted: false,
+      lastDiceRoll: null,
+      gameHistory: [],
+      createdAt: new Date()
+    };
+
+    // Initialize players
+    for (let i = 0; i < maxPlayers; i++) {
+      gameBoard.players.push({
+        id: null, // Will be set when players join
+        username: `Player ${i + 1}`,
+        position: 1,
+        color: PLAYER_COLORS[i],
+        avatar: PLAYER_AVATARS[i],
+        isReady: false,
+        score: 0,
+        joinedAt: null
+      });
+    }
+
+    logger.info(`Snakes & Ladders game board initialized for ${maxPlayers} players.`);
+    return gameBoard;
+  }
+
   async getGameById(gameId) {
     // Validate gameId parameter
     if (!gameId || typeof gameId !== 'string' || gameId.trim() === '') {

@@ -228,6 +228,8 @@ class MatchmakingService {
           initialGameData = gameService.initializeLudoGameBoard(playersToMatch);
         } else if (gameType === 'MEMORY') {
           initialGameData = gameService.initializeMemoryGameBoard();
+        } else if (gameType === 'SNAKES_LADDERS') {
+          initialGameData = gameService.initializeSnakesLaddersGameBoard(playersToMatch);
         }
 
         // Create game

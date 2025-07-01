@@ -130,6 +130,11 @@ class ClassicLudoService {
         return socket.emit('CLASSIC_LUDO_ERROR', { message: 'Game not found or not currently playing.' });
       }
 
+      if (!gameInstance) {
+        logger.warn(`Classic Ludo: Game instance not found for ${gameId}`);
+        return socket.emit('CLASSIC_LUDO_ERROR', { message: 'Game instance not found.' });
+      }
+
       if (gameInstance.gameState.currentTurnPlayerId !== playerId) {
         logger.warn(`Classic Ludo: Player ${playerId} attempted rollDice but it's not their turn in game ${gameId}.`);
         return socket.emit('CLASSIC_LUDO_ERROR', { message: 'It is not your turn to roll the dice.' });
@@ -145,21 +150,32 @@ class ClassicLudoService {
       gameInstance.gameState.diceRolled = true;
       gameInstance.gameState.diceValue = diceValue;
 
+      const canMove = this.canPlayerMove(gameInstance.gameState.board, playerId, diceValue);
+      const playerColor = gameService.getLudoPlayerColor(gameInstance.gameState.board, playerId);
+      const movablePieces = this.getMovablePieces(gameInstance.gameState.board, playerId, diceValue);
+
       // Broadcast dice roll to all players
       this.io.to(`game:${gameId}`).emit('CLASSIC_LUDO_DICE_ROLLED', {
         playerId,
         diceValue,
-        canMove: this.canPlayerMove(gameInstance.gameState.board, playerId, diceValue)
+        canMove,
+        playerColor,
+        movablePieces,
+        gameBoard: gameInstance.gameState.board
       });
 
       // Check if player can move, if not, end turn automatically
-      if (!this.canPlayerMove(gameInstance.gameState.board, playerId, diceValue)) {
+      if (!canMove) {
         setTimeout(() => {
-          this.endTurn(gameId, diceValue !== 6); // Don't change turn if rolled 6
-        }, 2000);
+          try {
+            this.endTurn(gameId, diceValue !== 6); // Don't change turn if rolled 6
+          } catch (error) {
+            logger.error(`Classic Ludo: Error in endTurn timeout for game ${gameId}:`, error);
+          }
+        }, 3000);
       }
 
-      logger.info(`🎲 Classic Ludo: Player ${playerId} rolled ${diceValue} in game ${gameId}.`);
+      logger.info(`🎲 Classic Ludo: Player ${playerId} rolled ${diceValue} in game ${gameId}. Can move: ${canMove}`);
     } catch (error) {
       logger.error(`❌ Classic Ludo: Roll dice error for player ${playerId} in game ${gameId}:`, error);
       socket.emit('CLASSIC_LUDO_ERROR', { message: 'Failed to roll dice.' });
@@ -242,12 +258,14 @@ class ClassicLudoService {
       this.io.to(`game:${gameId}`).emit('CLASSIC_LUDO_PIECE_MOVED', {
         playerId,
         pieceId,
-        updatedPiece: piece, // Use the actual piece object
+        updatedPiece: piece,
         gameBoard: board,
         killedPlayers: moveResult.capturedPiece ? [moveResult.capturedPiece] : [],
         scoreChange: scoreChange,
         diceValue: diceValue,
-        action: moveResult.action
+        action: moveResult.action,
+        newPosition: moveResult.newPosition,
+        playerColor: playerColor
       });
 
       if (isGameFinished) {
@@ -330,9 +348,53 @@ class ClassicLudoService {
     return false;
   }
 
+  getMovablePieces(board, playerId, diceValue) {
+    const playerColor = gameService.getLudoPlayerColor(board, playerId);
+    if (!playerColor) return [];
+
+    const playerData = board[playerColor];
+    const movablePieces = [];
+    
+    playerData.pieces.forEach((piece, index) => {
+      let canMove = false;
+      
+      if (piece.position === 'home' && diceValue === 6) {
+        canMove = true;
+      } else if (piece.position === 'board') {
+        canMove = true;
+      } else if (piece.position === 'homeStretch') {
+        const newPos = piece.boardPosition + diceValue;
+        if (newPos <= 6) {
+          canMove = true;
+        }
+      }
+      
+      if (canMove) {
+        movablePieces.push({
+          pieceId: index,
+          pieceIndex: index,
+          currentPosition: piece.position,
+          boardPosition: piece.boardPosition,
+          homeIndex: piece.homeIndex
+        });
+      }
+    });
+    
+    return movablePieces;
+  }
+
   endTurn(gameId, changeTurn = true) {
     const gameInstance = this.games.get(gameId);
-    if (!gameInstance) return;
+    if (!gameInstance) {
+      logger.warn(`Classic Ludo: endTurn called for non-existent game ${gameId}`);
+      return;
+    }
+
+    // Validate participants array exists
+    if (!gameInstance.participants || !Array.isArray(gameInstance.participants) || gameInstance.participants.length === 0) {
+      logger.error(`Classic Ludo: Invalid participants array in endTurn for game ${gameId}:`, gameInstance.participants);
+      return;
+    }
 
     // Reset dice state
     gameInstance.gameState.diceRolled = false;
@@ -342,13 +404,22 @@ class ClassicLudoService {
       // Move to next player
       const nextTurnIndex = (gameInstance.gameState.currentTurnIndex + 1) % gameInstance.participants.length;
       gameInstance.gameState.currentTurnIndex = nextTurnIndex;
-      gameInstance.gameState.currentTurnPlayerId = gameInstance.participants[nextTurnIndex].userId;
+      
+      // Validate the next participant exists
+      if (gameInstance.participants[nextTurnIndex] && gameInstance.participants[nextTurnIndex].userId) {
+        gameInstance.gameState.currentTurnPlayerId = gameInstance.participants[nextTurnIndex].userId;
+      } else {
+        logger.error(`Classic Ludo: Invalid participant at index ${nextTurnIndex} in game ${gameId}`);
+        return;
+      }
     }
 
     // Broadcast turn update
     this.io.to(`game:${gameId}`).emit('CLASSIC_LUDO_TURN_UPDATE', {
       currentTurn: gameInstance.gameState.currentTurnPlayerId,
-      currentTurnIndex: gameInstance.gameState.currentTurnIndex
+      currentTurnIndex: gameInstance.gameState.currentTurnIndex,
+      currentPlayer: gameInstance.participants[gameInstance.gameState.currentTurnIndex],
+      gameBoard: gameInstance.gameState.board
     });
   }
 }

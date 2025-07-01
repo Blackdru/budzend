@@ -179,6 +179,7 @@ enum GameType {
   FAST_LUDO
   CLASSIC_LUDO
   MEMORY
+  SNAKES_LADDERS
   // Future games can be added here
 }
 

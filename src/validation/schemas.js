@@ -33,7 +33,7 @@ const authSchemas = {
 
 const gameSchemas = {
   joinMatchmaking: Joi.object({
-    gameType: Joi.string().valid('CLASSIC_LUDO', 'FAST_LUDO', 'MEMORY').required(),
+    gameType: Joi.string().valid('CLASSIC_LUDO', 'FAST_LUDO', 'MEMORY', 'SNAKES_LADDERS').required(),
     maxPlayers: Joi.number().integer().min(2).max(4).required(),
     entryFee: Joi.number().min(0).max(10000).required() // entryFee can be 0 for free games, max 10k
   }),

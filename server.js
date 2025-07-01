@@ -23,6 +23,7 @@ const gameService = require('./src/services/gameService');
 const MemoryGameService = require('./src/services/MemoryGame');
 const FastLudoService = require('./src/services/FastLudoService');
 const ClassicLudoService = require('./src/services/ClassicLudoService');
+const SnakesLaddersService = require('./src/services/SnakesLaddersService');
 const { authenticateSocket } = require('./src/middleware/auth');
 const { gameSchemas } = require('./src/validation/schemas');
 
@@ -30,6 +31,7 @@ const { gameSchemas } = require('./src/validation/schemas');
 const memoryGameService = new MemoryGameService(io);
 const fastLudoService = new FastLudoService(io);
 const classicLudoService = new ClassicLudoService(io);
+const snakesLaddersService = new SnakesLaddersService(io);
 
 // Socket authentication
 io.use(authenticateSocket);
@@ -57,6 +59,7 @@ io.on('connection', (socket) => {
   memoryGameService.setupSocketHandlers(socket);
   fastLudoService.setupSocketHandlers(socket);
   classicLudoService.setupSocketHandlers(socket);
+  snakesLaddersService.setupSocketHandlers(socket);
 
   // Matchmaking events
   socket.on('joinMatchmaking', async (data) => {
@@ -72,7 +75,7 @@ io.on('connection', (socket) => {
       const { gameType, maxPlayers, entryFee } = value;
       
       // Validate game type enum
-      const validGameTypes = ['CLASSIC_LUDO', 'FAST_LUDO', 'MEMORY'];
+      const validGameTypes = ['CLASSIC_LUDO', 'FAST_LUDO', 'MEMORY', 'SNAKES_LADDERS'];
       if (!validGameTypes.includes(gameType)) {
         logger.warn(`Invalid game type ${gameType} for user ${userId}`);
         return socket.emit('matchmakingError', { message: 'Invalid game type' });
@@ -155,6 +158,8 @@ io.on('connection', (socket) => {
         await fastLudoService.joinRoom(socket, { gameId, playerId: userId, playerName: userName });
       } else if (game.type === 'MEMORY') {
         await memoryGameService.joinRoom(socket, { roomId: gameId, playerId: userId, playerName: userName });
+      } else if (game.type === 'SNAKES_LADDERS') {
+        await snakesLaddersService.joinRoom(socket, { gameId, playerId: userId, playerName: userName });
       }
 
       socket.emit('gameRoomJoined', { gameId });
@@ -246,6 +251,9 @@ io.on('connection', (socket) => {
         await fastLudoService.makeMove(socket, { gameId, playerId: userId, moveData });
       } else if (game.type === 'MEMORY') {
         await memoryGameService.makeMove(socket, { gameId, playerId: userId, moveData });
+      } else if (game.type === 'SNAKES_LADDERS') {
+        // Snakes & Ladders uses rollDice instead of makeMove
+        socket.emit('gameError', { message: 'Use rollDice for Snakes & Ladders' });
       }
     } catch (err) {
       logger.error(`Make move error for user ${userId}:`, err);
@@ -279,6 +287,8 @@ io.on('connection', (socket) => {
         gameState = await fastLudoService.getGameState(gameId);
       } else if (game.type === 'MEMORY') {
         gameState = await memoryGameService.getGameState(gameId);
+      } else if (game.type === 'SNAKES_LADDERS') {
+        gameState = await snakesLaddersService.getGameState(gameId);
       }
 
       socket.emit('gameState', { gameId, state: gameState });
@@ -461,6 +471,12 @@ matchmakingService.setGameCreatedCallback(async (game, matchedUsers) => {
                 playerId: user.id, 
                 playerName: user.name 
               });
+            } else if (game.type === 'SNAKES_LADDERS') {
+              await snakesLaddersService.joinRoom(socket, { 
+                gameId: game.id, 
+                playerId: user.id, 
+                playerName: user.name 
+              });
             }
           }
         }
@@ -490,6 +506,9 @@ matchmakingService.setGameCreatedCallback(async (game, matchedUsers) => {
           } else if (game.type === 'MEMORY') {
             logger.info(`Starting Memory game ${game.id} with ${socketsInRoom.size} sockets in room`);
             await memoryGameService.startGame({ roomId: game.id });
+          } else if (game.type === 'SNAKES_LADDERS') {
+            logger.info(`Starting Snakes & Ladders game ${game.id} with ${socketsInRoom.size} sockets in room`);
+            await snakesLaddersService.startGame({ gameId: game.id });
           }
           logger.info(`Successfully auto-started game ${game.id}`);
         } else {
@@ -730,6 +749,7 @@ setInterval(() => {
   try {
     socketManager.cleanup();
     gameStateManager.cleanup();
+    snakesLaddersService.cleanup();
     logger.debug('Cleanup completed');
   } catch (error) {
     logger.error('Cleanup error:', error);

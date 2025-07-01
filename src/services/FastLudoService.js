@@ -251,14 +251,44 @@ class FastLudoService {
 
       logger.info(`Fast Ludo: Player ${playerId} rolled ${diceValue} in game ${gameId}.`);
 
+      const playerColor = gameService.getLudoPlayerColor(gameData.board, playerId);
+      const canMove = this.canPlayerMove(gameData.board, playerId, diceValue);
+      const movablePieces = this.getMovablePieces(gameData.board, playerId, diceValue);
+
       // Broadcast dice roll to all players in game room
       this.io.to(`game:${gameId}`).emit('FAST_LUDO_DICE_ROLLED', {
         playerId,
         diceValue,
         currentTurnIndex: game.currentTurn,
         currentPlayerId: currentPlayer.userId,
-        gameId
+        gameId,
+        playerColor,
+        canMove,
+        movablePieces,
+        gameBoard: gameData.board
       });
+
+      // Auto-end turn if player cannot move
+      if (!canMove) {
+        setTimeout(async () => {
+          try {
+            // Reset dice state and move to next turn
+            gameData.diceRolled = false;
+            gameData.diceValue = null;
+            
+            const nextTurnIndex = (game.currentTurn + 1) % game.participants.length;
+            await gameService.updateGameState(gameId, gameData, nextTurnIndex, 'PLAYING', null);
+            
+            this.io.to(`game:${gameId}`).emit('FAST_LUDO_TURN_UPDATE', {
+              currentPlayerId: game.participants[nextTurnIndex].userId,
+              currentTurnIndex: nextTurnIndex,
+              gameBoard: gameData.board
+            });
+          } catch (error) {
+            logger.error(`Fast Ludo: Error auto-ending turn for ${gameId}:`, error);
+          }
+        }, 3000);
+      }
     } catch (error) {
       logger.error(`❌ Fast Ludo: Roll dice error for player ${playerId} in game ${gameId}:`, error);
       socket.emit('FAST_LUDO_ERROR', { message: 'Failed to roll dice.', details: error.message });
@@ -338,8 +368,13 @@ class FastLudoService {
         logger.info(`Fast Ludo: Player ${playerId} rolled a 6 and gets an extra turn in game ${gameId}.`);
       } else {
         // Move to next turn in sequence if no extra turn
-        nextTurnIndex = (game.currentTurn + 1) % game.participants.length;
-        logger.debug(`Fast Ludo: Switching turn to index ${nextTurnIndex} in game ${gameId}.`);
+        if (game.participants && game.participants.length > 0) {
+          nextTurnIndex = (game.currentTurn + 1) % game.participants.length;
+          logger.debug(`Fast Ludo: Switching turn to index ${nextTurnIndex} in game ${gameId}.`);
+        } else {
+          logger.error(`Fast Ludo: Cannot switch turn - participants array is invalid in game ${gameId}`);
+          return socket.emit('FAST_LUDO_ERROR', { message: 'Game participants data is corrupted.' });
+        }
       }
 
       // Persist the updated game state to the database
@@ -595,6 +630,61 @@ class FastLudoService {
       }
     });
     return scores;
+  }
+
+  canPlayerMove(board, playerId, diceValue) {
+    const playerColor = gameService.getLudoPlayerColor(board, playerId);
+    if (!playerColor) return false;
+
+    const playerData = board[playerColor];
+    
+    // In Fast Ludo, all pieces start outside, so check if any piece can move
+    for (const piece of playerData.pieces) {
+      if (piece.position === 'board') {
+        return true; // Can always try to move pieces on board
+      }
+      if (piece.position === 'homeStretch') {
+        const newPos = piece.boardPosition + diceValue;
+        if (newPos <= 6) {
+          return true; // Can move in home stretch without overshooting
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  getMovablePieces(board, playerId, diceValue) {
+    const playerColor = gameService.getLudoPlayerColor(board, playerId);
+    if (!playerColor) return [];
+
+    const playerData = board[playerColor];
+    const movablePieces = [];
+    
+    playerData.pieces.forEach((piece, index) => {
+      let canMove = false;
+      
+      if (piece.position === 'board') {
+        canMove = true;
+      } else if (piece.position === 'homeStretch') {
+        const newPos = piece.boardPosition + diceValue;
+        if (newPos <= 6) {
+          canMove = true;
+        }
+      }
+      
+      if (canMove) {
+        movablePieces.push({
+          pieceId: index,
+          pieceIndex: index,
+          currentPosition: piece.position,
+          boardPosition: piece.boardPosition,
+          homeIndex: piece.homeIndex
+        });
+      }
+    });
+    
+    return movablePieces;
   }
 }
 
