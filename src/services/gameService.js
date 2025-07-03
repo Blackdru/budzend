@@ -45,16 +45,16 @@ class GameService {
   }
 
   /**
-   * Fixed Memory Game Board - 11 pairs (22 cards) with 10-second timer
+   * Fixed Memory Game Board - 15 pairs (30 cards)
    */
   initializeMemoryGameBoard() {
     const CARD_SYMBOLS = [
       '🎮', '🎯', '🎲', '🃏', '🎪', '🎨', '🎭', '💡',
-      '⚽', '🏀', '🏈'
+      '⚽', '🏀', '🏈', '🏸', '🏎️', '🏓', '🎾'
     ];
     
-    // Use exactly 11 unique symbols for 22 cards (11 pairs) - odd number prevents ties
-    const selectedSymbols = CARD_SYMBOLS.slice(0, 11);
+    // Use exactly 15 unique symbols for 30 cards (15 pairs)
+    const selectedSymbols = CARD_SYMBOLS.slice(0, 15);
     const cards = [...selectedSymbols, ...selectedSymbols]; // Create exactly 2 of each symbol
     
     // Shuffle the cards (Fisher-Yates)
@@ -235,10 +235,31 @@ class GameService {
     try {
       const game = await this.getGameById(gameId);
       if (!game || game.status !== 'FINISHED' || !game.winner) {
+        logger.warn(`Cannot process winnings for game ${gameId}: invalid game state`);
         return;
       }
 
-      const winnerAmount = game.prizePool * 0.9;
+      // Check if winnings have already been processed to prevent double crediting
+      try {
+        const existingTransaction = await prisma.transaction.findFirst({
+          where: {
+            userId: game.winner,
+            type: 'GAME_WINNING',
+            gameId: gameId
+          }
+        });
+
+        if (existingTransaction) {
+          logger.warn(`Winnings already processed for game ${gameId}, skipping duplicate processing`);
+          return;
+        }
+      } catch (transactionCheckError) {
+        logger.warn(`Could not check existing transactions for game ${gameId}, proceeding with caution:`, transactionCheckError);
+        // Continue with processing but log the issue
+      }
+
+      // Prize pool is already 90% of entry fees, so winner gets the full prize pool
+      const winnerAmount = game.prizePool;
       await walletService.creditWallet(game.winner, winnerAmount, 'GAME_WINNING', gameId);
       
       logger.info(`Game ${gameId} winnings processed: ₹${winnerAmount.toFixed(2)} credited to user ${game.winner}`);
